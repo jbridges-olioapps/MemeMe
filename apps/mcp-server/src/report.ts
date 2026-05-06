@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Thread, GifAttachment } from "./types.js";
+import type { Thread, ThreadMessage, GifAttachment } from "./types.js";
 
 export type ReportSeed = {
   url: string;
@@ -89,6 +89,104 @@ function youtubeVideoCard(originalUrl: string): string | null {
   `;
 }
 
+function truncatePreview(s: string, maxChars: number): string {
+  const t = s.trim().replace(/\s+/g, " ");
+  if (!t) return "(no caption)";
+  if (t.length <= maxChars) return t;
+  return `${t.slice(0, maxChars - 1)}…`;
+}
+
+/** Earlier attachment in thread with same normalized YouTube id (same message ok). */
+function findPriorVideoPosting(
+  conversation: ThreadMessage[],
+  msgIndex: number,
+  beforeAttIdx: number,
+  vid: string,
+): Pick<ThreadMessage, "from" | "text"> & { url: string } | null {
+  const m = conversation[msgIndex];
+  if (beforeAttIdx > 0) {
+    for (let k = beforeAttIdx - 1; k >= 0; k--) {
+      const att = m.attachments[k];
+      if (att?.type === "video" && youtubeVideoId(att.url) === vid) {
+        return { from: m.from, text: m.text, url: att.url };
+      }
+    }
+  }
+  for (let j = msgIndex - 1; j >= 0; j--) {
+    const prev = conversation[j];
+    for (let k = prev.attachments.length - 1; k >= 0; k--) {
+      const att = prev.attachments[k];
+      if (att?.type === "video" && youtubeVideoId(att.url) === vid) {
+        return { from: prev.from, text: prev.text, url: att.url };
+      }
+    }
+  }
+  return null;
+}
+
+function videoEchoReference(args: {
+  watchUrlEscaped: string;
+  thumbEscaped: string;
+  extraLinesHtml: string;
+  priorLinesHtml: string;
+}): string {
+  return `
+    <div class="video-echo">
+      <a class="video-echo__thumb-wrap" href="${args.watchUrlEscaped}" target="_blank" rel="noreferrer">
+        <img class="video-echo__thumb" src="${args.thumbEscaped}" alt="" loading="lazy" />
+      </a>
+      <div class="video-echo__meta">
+        <div class="video-echo__eyebrow">Same Short shared earlier</div>
+        ${args.extraLinesHtml}
+        ${args.priorLinesHtml}
+      </div>
+      <a class="video-echo__link" href="${args.watchUrlEscaped}" target="_blank" rel="noreferrer">YouTube →</a>
+    </div>
+  `;
+}
+
+function renderVideoEmbed(args: {
+  url: string;
+  conversation: ThreadMessage[];
+  msgIndex: number;
+  attIndex: number;
+  seenYoutubeIds: Set<string>;
+  seedYoutubeId: string | null;
+  speakerHtml: (from: string) => string;
+}): string | null {
+  const { url } = args;
+  const vid = youtubeVideoId(url);
+  if (!vid) return youtubeVideoCard(url);
+
+  if (args.seenYoutubeIds.has(vid)) {
+    const prior = findPriorVideoPosting(args.conversation, args.msgIndex, args.attIndex, vid);
+    const thumb = `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`;
+    const watchUrlEscaped = escapeHtml(url);
+    const thumbEscaped = escapeHtml(thumb);
+
+    let extraLinesHtml = "";
+    let priorLinesHtml = "";
+
+    if (!prior && args.seedYoutubeId === vid) {
+      extraLinesHtml = `<div class="video-echo__seed-note">Same Short as <a href="#mememe-seed-anchor">starting Short ↑</a></div>`;
+    } else if (prior) {
+      priorLinesHtml = `<blockquote class="video-echo__quote">${args.speakerHtml(prior.from)} — "${escapeHtml(
+        truncatePreview(prior.text, 120),
+      )}"</blockquote>`;
+      if (args.seedYoutubeId === vid) {
+        extraLinesHtml = `<div class="video-echo__seed-note">Also in <a href="#mememe-seed-anchor">Starting Short ↑</a></div>`;
+      }
+    } else {
+      priorLinesHtml = `<div class="video-echo__fallback">Repeated later in thread (no snippet).</div>`;
+    }
+
+    return videoEchoReference({ watchUrlEscaped, thumbEscaped, extraLinesHtml, priorLinesHtml });
+  }
+
+  args.seenYoutubeIds.add(vid);
+  return youtubeVideoCard(url);
+}
+
 function gifCard(gif: GifAttachment): string {
   const gifUrl = escapeHtml(gif.url);
   const sourceUrl = gif.sourceUrl ? escapeHtml(gif.sourceUrl) : null;
@@ -116,7 +214,7 @@ function seedPanel(seed: ReportSeed | undefined, seedMessageText: string): strin
     ? `<div class="seed-note">${escapeHtml(seedMessageText)}</div>`
     : "";
   return `
-    <section class="seed-panel">
+    <section class="seed-panel" id="mememe-seed-anchor">
       <div class="seed-eyebrow">▶ Starting Short</div>
       <div class="seed-body">
         <div class="seed-meta">
@@ -177,6 +275,10 @@ export async function generateThreadReport(args: {
       ? `You (${escapeHtml(speakers[0])}) · ${escapeHtml(speakers[1])}`
       : escapeHtml(speakers.join(" · "));
 
+  const seedYoutubeId = seed?.url ? youtubeVideoId(seed.url) : null;
+  const seenYoutubeIds = new Set<string>();
+  if (seedYoutubeId) seenYoutubeIds.add(seedYoutubeId);
+
   const messagesHtml = conversation
     .map((m, i) => {
       const side = sideFor(m.from);
@@ -184,14 +286,24 @@ export async function generateThreadReport(args: {
       const delay = (i * 0.55).toFixed(2);
       const time = formatTime(m.createdAt);
 
-      const embeds = m.attachments
-        .map((a) => {
-          if (a.type === "video") return youtubeVideoCard(a.url);
-          if (a.type === "gif") return gifCard(a);
-          return null;
-        })
-        .filter((x): x is string => Boolean(x))
-        .join("\n");
+      const embedParts: string[] = [];
+      for (let ai = 0; ai < m.attachments.length; ai++) {
+        const a = m.attachments[ai];
+        if (a.type === "gif") embedParts.push(gifCard(a));
+        else if (a.type === "video") {
+          const html = renderVideoEmbed({
+            url: a.url,
+            conversation,
+            msgIndex: i,
+            attIndex: ai,
+            seenYoutubeIds,
+            seedYoutubeId,
+            speakerHtml: speakerDisplayHtml,
+          });
+          if (html) embedParts.push(html);
+        }
+      }
+      const embeds = embedParts.join("\n");
 
       const reactionsHtml = m.reactions.length
         ? `<div class="reactions">${m.reactions
@@ -467,6 +579,86 @@ export async function generateThreadReport(args: {
     .embed-toggle summary { cursor: pointer; user-select: none; }
     .embed { border-top: 1px solid var(--border); }
     iframe { width: 100%; aspect-ratio: 9/16; border: 0; background: #000; }
+
+    /* ── Repeated Short (compact echo) ──────────────────────── */
+    .video-echo {
+      margin-top: 10px;
+      display: flex;
+      gap: 10px;
+      align-items: stretch;
+      max-width: 100%;
+      padding: 9px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,.25);
+      border-left: 3px solid rgba(255,255,255,.28);
+      opacity: 0.92;
+    }
+    .video-echo__thumb-wrap {
+      flex-shrink: 0;
+      display: block;
+      width: 72px;
+      border-radius: 6px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      align-self: center;
+      text-decoration: none;
+      line-height: 0;
+    }
+    .video-echo__thumb {
+      width: 100%;
+      aspect-ratio: 16/9;
+      object-fit: cover;
+      display: block;
+      filter: saturate(0.85) brightness(0.92);
+    }
+    .video-echo__meta {
+      min-width: 0;
+      flex: 1;
+      font-size: 12px;
+      line-height: 1.38;
+      color: var(--muted);
+    }
+    .video-echo__eyebrow {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      opacity: .9;
+      color: rgba(231,231,231,.72);
+      margin-bottom: 4px;
+    }
+    .video-echo__seed-note {
+      font-size: 11px;
+      margin-bottom: 6px;
+    }
+    .video-echo__seed-note a {
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .video-echo__quote {
+      margin: 0;
+      padding: 5px 0 0 8px;
+      border-left: 2px solid rgba(255,255,255,.2);
+      color: rgba(231,231,231,.76);
+      font-size: 11px;
+    }
+    .video-echo__fallback {
+      font-size: 11px;
+      font-style: italic;
+      opacity: .8;
+      margin-top: 4px;
+    }
+    .video-echo__link {
+      flex-shrink: 0;
+      align-self: center;
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      opacity: 0.9;
+      white-space: nowrap;
+    }
 
     /* ── GIF card ───────────────────────────────────────────── */
     .gif-card {
