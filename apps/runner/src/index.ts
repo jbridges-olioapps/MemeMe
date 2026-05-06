@@ -32,6 +32,7 @@ app.use(
       // If no allowlist is configured, allow everything.
       if (ALLOWED_ORIGINS.length === 0) return cb(null, true);
       if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      console.error(`CORS blocked origin: "${origin}" — allowed: ${JSON.stringify(ALLOWED_ORIGINS)}`);
       return cb(new Error("CORS blocked"), false);
     },
   }),
@@ -222,12 +223,15 @@ app.listen(PORT, () => {
   const giphyStatus = process.env.GIPHY_API_KEY ? "✓ set" : "✗ not set — no GIF replies";
   const tokenStatus = RUNNER_TOKEN ? "✓ set" : "⚠ not set — no auth required";
   // eslint-disable-next-line no-console
+  const originsStatus = ALLOWED_ORIGINS.length ? ALLOWED_ORIGINS.join(", ") : "none (all origins allowed)";
   console.log(`\nRunner listening on http://localhost:${PORT}`);
   // eslint-disable-next-line no-console
   console.log(`  ANTHROPIC_API_KEY  ${anthropicStatus}`);
   // eslint-disable-next-line no-console
   console.log(`  GIPHY_API_KEY      ${giphyStatus}`);
   // eslint-disable-next-line no-console
-  console.log(`  RUNNER_TOKEN       ${tokenStatus}\n`);
+  console.log(`  RUNNER_TOKEN       ${tokenStatus}`);
+  // eslint-disable-next-line no-console
+  console.log(`  ALLOWED_ORIGINS    ${originsStatus}\n`);
 });
 
