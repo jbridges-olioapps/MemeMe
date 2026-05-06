@@ -1,14 +1,33 @@
-import { copyFile, mkdir, readdir } from "node:fs/promises";
+/**
+ * Generates a live example report by calling the local runner.
+ * The runner must already be running (npm run dev:runner).
+ *
+ * Usage:
+ *   npm run demo:example-report
+ *   npm run demo:example-report -- --url https://www.youtube.com/shorts/GVMFbFAsdwE
+ */
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { generateThreadReport } from "@mememe/mcp-server";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const reportsRoot = path.join(rootDir, "demo", "example-reports");
 
-await mkdir(reportsRoot, { recursive: true });
+// --- Config (override via env or CLI args) ---
+const RUNNER_URL = process.env.RUNNER_URL ?? "http://localhost:8787";
+const RUNNER_TOKEN = process.env.RUNNER_TOKEN ?? "";
+const DEFAULT_URL = "https://www.youtube.com/shorts/GVMFbFAsdwE";
+const DEFAULT_PROMPT = "Start a fun DM thread about this video. React to it, share another one back.";
 
-// Find the next run number by counting existing run-NNN directories.
+// Parse --url and --prompt from CLI args
+const args = process.argv.slice(2);
+const urlArg = args[args.indexOf("--url") + 1];
+const promptArg = args[args.indexOf("--prompt") + 1];
+const shortUrl = urlArg ?? DEFAULT_URL;
+const judgeMessage = promptArg ?? DEFAULT_PROMPT;
+
+// --- Find next run number ---
+await mkdir(reportsRoot, { recursive: true });
 const existing = await readdir(reportsRoot).catch(() => []);
 const runNumbers = existing
   .map((name) => name.match(/^run-(\d+)$/)?.[1])
@@ -17,63 +36,62 @@ const runNumbers = existing
 const nextRun = runNumbers.length > 0 ? Math.max(...runNumbers) + 1 : 1;
 const runLabel = `run-${String(nextRun).padStart(3, "0")}`;
 const outDir = path.join(reportsRoot, runLabel);
+await mkdir(outDir, { recursive: true });
 
-const now = new Date();
-const iso = (minsAgo) => new Date(now.getTime() - minsAgo * 60_000).toISOString();
+// --- Call the runner ---
+console.log(`\nCalling runner at ${RUNNER_URL} ...`);
+console.log(`  Short URL:  ${shortUrl}`);
+console.log(`  Prompt:     ${judgeMessage}\n`);
 
-const thread = {
-  id: "example_thread",
-  participants: ["Judge", "AgentA", "AgentB"],
-  createdAt: iso(20),
-  messages: [
-    {
-      id: "msg_1",
-      threadId: "example_thread",
-      from: "Judge",
-      text: "Make this feel like two friends sending Shorts back and forth. Keep it fun.",
-      attachments: [{ type: "video", url: "https://www.youtube.com/shorts/aqz-KE-bpKQ" }],
-      createdAt: iso(19),
-      reactions: [],
+let runResult;
+try {
+  const res = await fetch(`${RUNNER_URL}/run`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(RUNNER_TOKEN ? { "X-Runner-Token": RUNNER_TOKEN } : {}),
     },
-    {
-      id: "msg_2",
-      threadId: "example_thread",
-      from: "AgentA",
-      text: "Ok this one is chaotic-good. What do you think?",
-      attachments: [{ type: "video", url: "https://www.youtube.com/shorts/2Vv-BfVoq4g" }],
-      createdAt: iso(17),
-      reactions: [{ from: "AgentB", reaction: "😂", createdAt: iso(16) }],
-    },
-    {
-      id: "msg_3",
-      threadId: "example_thread",
-      from: "AgentB",
-      text: "Counter-pick: same energy, but somehow worse (in the best way).",
-      attachments: [{ type: "video", url: "https://www.youtube.com/shorts/9bZkp7q19f0" }],
-      createdAt: iso(14),
-      reactions: [{ from: "AgentA", reaction: "🔥", createdAt: iso(13) }],
-    },
-  ],
-};
+    body: JSON.stringify({ shortUrl, judgeMessage, turns: 8 }),
+  });
 
-// Write into outDir/<threadId>/index.html, then copy to outDir/index.html for convenience.
-const { indexPath } = await generateThreadReport({ outDir, thread });
-const topLevelIndex = path.join(outDir, "index.html");
-await copyFile(indexPath, topLevelIndex);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Runner returned ${res.status}: ${body}`);
+  }
 
+  runResult = await res.json();
+} catch (err) {
+  console.error(`\n✗ Could not reach runner: ${err.message}`);
+  console.error(`  Make sure the runner is running: npm run dev:runner`);
+  process.exit(1);
+}
+
+// --- Fetch the report HTML and save locally ---
+const reportFetchUrl = `${RUNNER_URL}${runResult.reportUrl}`;
+const reportRes = await fetch(reportFetchUrl, {
+  headers: RUNNER_TOKEN ? { "X-Runner-Token": RUNNER_TOKEN } : {},
+});
+
+if (!reportRes.ok) {
+  console.error(`✗ Could not fetch report HTML from ${reportFetchUrl}`);
+  process.exit(1);
+}
+
+const html = await reportRes.text();
+const indexPath = path.join(outDir, "index.html");
+await writeFile(indexPath, html, "utf8");
+
+// --- Print history ---
 const allRuns = (await readdir(reportsRoot))
   .filter((name) => /^run-\d+$/.test(name))
   .sort();
 
-// eslint-disable-next-line no-console
-console.log(`\n✓ Report saved: ${runLabel}/index.html`);
-// eslint-disable-next-line no-console
-console.log(`\n  open "${topLevelIndex}"\n`);
-// eslint-disable-next-line no-console
+console.log(`✓ Report saved: ${runLabel}/index.html`);
+if (runResult.personas) {
+  console.log(`  Personas: ${runResult.personas.A.name} vs ${runResult.personas.B.name}`);
+}
+console.log(`\n  open "${indexPath}"\n`);
 console.log(`History (${allRuns.length} run${allRuns.length === 1 ? "" : "s"}):`);
 for (const run of allRuns) {
-  const marker = run === runLabel ? " ← latest" : "";
-  // eslint-disable-next-line no-console
-  console.log(`  ${run}${marker}`);
+  console.log(`  ${run}${run === runLabel ? " ← latest" : ""}`);
 }
-

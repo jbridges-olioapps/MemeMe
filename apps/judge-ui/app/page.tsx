@@ -1,45 +1,67 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+const PERSONAS = [
+  { id: "random", name: "🎲 Random" },
+  { id: "hype-beast", name: "Hype Beast" },
+  { id: "chaos-gremlin", name: "Chaos Gremlin" },
+  { id: "film-snob", name: "Film Snob" },
+  { id: "vintage-hipster", name: "Vintage Hipster" },
+  { id: "gym-rat", name: "Gym Rat" },
+  { id: "corporate-girlie", name: "Corporate Girlie" },
+  { id: "conspiracy-theorist", name: "Conspiracy Theorist" },
+  { id: "theater-kid", name: "Theater Kid" },
+  { id: "boomer-dad", name: "Boomer Dad" },
+  { id: "overthinker", name: "Anxious Overthinker" },
+];
 
 type RunResponse =
   | {
       ok: true;
       runId: string;
       reportUrl: string;
-      reportPath: string;
+      personas?: { A: { name: string }; B: { name: string } };
     }
   | { ok: false; error: string };
 
-const DEFAULT_RUNNER_URL = process.env.NEXT_PUBLIC_RUNNER_URL || "";
-
 export default function Page() {
-  const [runnerUrl, setRunnerUrl] = useState(DEFAULT_RUNNER_URL);
-  const [token, setToken] = useState(process.env.NEXT_PUBLIC_RUNNER_TOKEN || "");
+  const [runnerUrl, setRunnerUrl] = useState("");
+  const [token, setToken] = useState("");
+
+  useEffect(() => {
+    setRunnerUrl((prev) => prev || process.env.NEXT_PUBLIC_RUNNER_URL || "");
+    setToken((prev) => prev || process.env.NEXT_PUBLIC_RUNNER_TOKEN || "");
+  }, []);
+
   const [shortUrl, setShortUrl] = useState("");
-  const [judgeMessage, setJudgeMessage] = useState("Send something funny and then respond like two friends DMing.");
+  const [personaA, setPersonaA] = useState("random");
+  const [personaB, setPersonaB] = useState("random");
   const [turns, setTurns] = useState(8);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RunResponse | null>(null);
 
-  const canSubmit = useMemo(() => runnerUrl.trim().length > 0 && shortUrl.trim().length > 0 && judgeMessage.trim().length > 0, [
-    runnerUrl,
-    shortUrl,
-    judgeMessage,
-  ]);
+  const canSubmit = useMemo(
+    () => runnerUrl.trim().length > 0 && shortUrl.trim().length > 0,
+    [runnerUrl, shortUrl],
+  );
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setResult(null);
     try {
+      const body: Record<string, unknown> = { shortUrl, turns };
+      if (personaA !== "random") body.personaA = personaA;
+      if (personaB !== "random") body.personaB = personaB;
+
       const res = await fetch(`${runnerUrl.replace(/\/+$/, "")}/run`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           ...(token ? { "X-Runner-Token": token } : {}),
         },
-        body: JSON.stringify({ shortUrl, judgeMessage, turns }),
+        body: JSON.stringify(body),
       });
       const data = (await res.json()) as RunResponse;
       setResult(data);
@@ -51,148 +73,151 @@ export default function Page() {
   }
 
   return (
-    <main style={{ maxWidth: 920, margin: "0 auto", padding: "28px 14px 44px" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-        <div>
-          <div style={{ fontSize: 12, opacity: 0.8, letterSpacing: 0.6 }}>MemeMe</div>
-          <h1 style={{ margin: "6px 0 0", fontSize: 22 }}>Judge UI (GitHub Pages)</h1>
+    <main style={{ maxWidth: 640, margin: "0 auto", padding: "40px 16px 60px" }}>
+      <header style={{ marginBottom: 28 }}>
+        <div style={{ fontSize: 11, opacity: 0.6, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
+          MemeMe
         </div>
-        <div style={{ fontSize: 12, opacity: 0.75 }}>Static frontend · Runner does the work</div>
+        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700 }}>Run a demo</h1>
+        <p style={{ margin: "8px 0 0", fontSize: 14, opacity: 0.7, lineHeight: 1.5 }}>
+          Paste a YouTube Short, pick two personas, and watch them go.
+        </p>
       </header>
 
-      <section
-        style={{
-          marginTop: 18,
-          padding: 14,
-          border: "1px solid rgba(255,255,255,.10)",
-          borderRadius: 16,
-          background: "rgba(255,255,255,.06)",
-        }}
-      >
-        <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
-          <label style={{ display: "grid", gap: 6 }}>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>Runner URL</div>
-            <input
-              value={runnerUrl}
-              onChange={(e) => setRunnerUrl(e.target.value)}
-              placeholder="https://<your-tunnel-domain>"
-              style={inputStyle}
-            />
-          </label>
+      <section style={cardStyle}>
+        <form onSubmit={onSubmit} style={{ display: "grid", gap: 16 }}>
 
           <label style={{ display: "grid", gap: 6 }}>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>X-Runner-Token (optional)</div>
-            <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="shared secret" style={inputStyle} />
-            <div style={{ fontSize: 12, opacity: 0.7 }}>
-              Note: any token embedded in a static site is visible to users. For hackathon demos this is usually fine.
-            </div>
-          </label>
-
-          <label style={{ display: "grid", gap: 6 }}>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>YouTube Short URL</div>
+            <div style={labelStyle}>YouTube Short URL</div>
             <input
               value={shortUrl}
               onChange={(e) => setShortUrl(e.target.value)}
               placeholder="https://www.youtube.com/shorts/..."
               style={inputStyle}
+              autoFocus
             />
           </label>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <label style={{ display: "grid", gap: 6 }}>
+              <div style={labelStyle}>Agent A</div>
+              <select value={personaA} onChange={(e) => setPersonaA(e.target.value)} style={inputStyle}>
+                {PERSONAS.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "grid", gap: 6 }}>
+              <div style={labelStyle}>Agent B</div>
+              <select value={personaB} onChange={(e) => setPersonaB(e.target.value)} style={inputStyle}>
+                {PERSONAS.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           <label style={{ display: "grid", gap: 6 }}>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>Judge prompt</div>
-            <textarea value={judgeMessage} onChange={(e) => setJudgeMessage(e.target.value)} rows={4} style={inputStyle} />
-          </label>
-
-          <label style={{ display: "grid", gap: 6, maxWidth: 220 }}>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>Turns</div>
+            <div style={{ ...labelStyle, display: "flex", justifyContent: "space-between" }}>
+              <span>Turns</span>
+              <span style={{ opacity: 0.75 }}>{turns} messages</span>
+            </div>
             <input
-              type="number"
+              type="range"
               min={2}
-              max={20}
+              max={16}
+              step={2}
               value={turns}
               onChange={(e) => setTurns(Number(e.target.value))}
-              style={inputStyle}
+              style={{ width: "100%", accentColor: "rgba(99,102,241,1)" }}
             />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, opacity: 0.5 }}>
+              <span>2</span><span>16</span>
+            </div>
           </label>
 
           <button type="submit" disabled={!canSubmit || loading} style={buttonStyle(!canSubmit || loading)}>
-            {loading ? "Running…" : "Run demo"}
+            {loading ? "Running…" : "▶ Run demo"}
           </button>
+
         </form>
       </section>
 
-      <section style={{ marginTop: 14 }}>
-        {result?.ok && (
-          <div style={resultBoxStyle}>
-            <div style={{ fontWeight: 600 }}>Run created</div>
-            <div style={{ fontSize: 12, opacity: 0.8 }}>
-              Run ID: <code>{result.runId}</code>
+      {result?.ok && (
+        <section style={{ ...cardStyle, marginTop: 14, borderColor: "rgba(16,185,129,.3)", background: "rgba(16,185,129,.07)" }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Done!</div>
+          {result.personas && (
+            <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 10 }}>
+              {result.personas.A.name} vs {result.personas.B.name}
             </div>
-            <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <a
-                href={`${runnerUrl.replace(/\/+$/, "")}${result.reportUrl}`}
-                target="_blank"
-                rel="noreferrer"
-                style={linkButtonStyle}
-              >
-                Open report
-              </a>
-            </div>
-          </div>
-        )}
+          )}
+          <a
+            href={`${runnerUrl.replace(/\/+$/, "")}${result.reportUrl}`}
+            target="_blank"
+            rel="noreferrer"
+            style={linkButtonStyle}
+          >
+            Open report →
+          </a>
+        </section>
+      )}
 
-        {result && !result.ok && (
-          <div style={{ ...resultBoxStyle, borderColor: "rgba(239,68,68,.35)", background: "rgba(239,68,68,.08)" }}>
-            <div style={{ fontWeight: 600 }}>Run failed</div>
-            <div style={{ fontSize: 12, opacity: 0.85 }}>{result.error}</div>
-          </div>
-        )}
-      </section>
-
-      <footer style={{ marginTop: 22, fontSize: 12, opacity: 0.75 }}>
-        If you’re using GitHub Project Pages, this UI is exported under a repo base path. The runner must allow CORS for your Pages
-        origin.
-      </footer>
+      {result && !result.ok && (
+        <section style={{ ...cardStyle, marginTop: 14, borderColor: "rgba(239,68,68,.35)", background: "rgba(239,68,68,.08)" }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Run failed</div>
+          <div style={{ fontSize: 13, opacity: 0.85, fontFamily: "monospace", wordBreak: "break-all" }}>{result.error}</div>
+        </section>
+      )}
     </main>
   );
 }
 
+const cardStyle: React.CSSProperties = {
+  padding: "18px 16px",
+  border: "1px solid rgba(255,255,255,.10)",
+  borderRadius: 18,
+  background: "rgba(255,255,255,.05)",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 500,
+  opacity: 0.85,
+};
+
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "10px 12px",
-  borderRadius: 12,
+  borderRadius: 10,
   border: "1px solid rgba(255,255,255,.14)",
-  background: "rgba(0,0,0,.18)",
+  background: "rgba(0,0,0,.22)",
   color: "inherit",
   outline: "none",
+  fontSize: 14,
+  boxSizing: "border-box",
 };
 
 const buttonStyle = (disabled: boolean): React.CSSProperties => ({
-  padding: "10px 14px",
+  padding: "12px 16px",
   borderRadius: 12,
-  border: "1px solid rgba(255,255,255,.16)",
-  background: disabled ? "rgba(255,255,255,.08)" : "rgba(99,102,241,.85)",
+  border: "none",
+  background: disabled ? "rgba(255,255,255,.08)" : "rgba(99,102,241,.9)",
   color: "inherit",
   cursor: disabled ? "not-allowed" : "pointer",
-  fontWeight: 600,
+  fontWeight: 700,
+  fontSize: 15,
+  letterSpacing: 0.3,
+  transition: "background .15s",
 });
-
-const resultBoxStyle: React.CSSProperties = {
-  padding: 14,
-  borderRadius: 16,
-  border: "1px solid rgba(255,255,255,.10)",
-  background: "rgba(255,255,255,.06)",
-};
 
 const linkButtonStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
-  justifyContent: "center",
-  padding: "10px 14px",
-  borderRadius: 12,
+  padding: "10px 16px",
+  borderRadius: 10,
   border: "1px solid rgba(255,255,255,.16)",
-  background: "rgba(255,255,255,.10)",
+  background: "rgba(255,255,255,.09)",
   textDecoration: "none",
   fontWeight: 600,
+  fontSize: 14,
 };
-

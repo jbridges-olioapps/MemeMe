@@ -1,3 +1,10 @@
+import { config as loadDotenv } from "dotenv";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Load .env from repo root (two dirs up from apps/runner/src/)
+loadDotenv({ path: resolve(fileURLToPath(import.meta.url), "../../../../.env") });
+
 import express from "express";
 import rateLimit from "express-rate-limit";
 import cors from "cors";
@@ -18,8 +25,11 @@ app.set("trust proxy", 1);
 app.use(
   cors({
     origin: (origin, cb) => {
-      // Allow server-to-server / curl (no origin), and optionally restrict browsers.
+      // Always allow: no-origin requests (curl/server-to-server) and localhost (local dev).
       if (!origin) return cb(null, true);
+      if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true);
+      if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return cb(null, true);
+      // If no allowlist is configured, allow everything.
       if (ALLOWED_ORIGINS.length === 0) return cb(null, true);
       if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
       return cb(new Error("CORS blocked"), false);
@@ -55,7 +65,9 @@ app.get("/health", (_req, res) => {
 
 const RunInput = z.object({
   shortUrl: z.string(),
-  judgeMessage: z.string().min(1).max(1000),
+  judgeMessage: z.string().min(1).max(1000).optional().default(
+    "Two friends are DMing each other YouTube Shorts. React to this video and keep the thread going.",
+  ),
   turns: z.number().int().min(2).max(20).optional(),
   personaA: z.string().optional(),
   personaB: z.string().optional(),
@@ -190,7 +202,7 @@ app.get("/runs/:runId", async (req, res) => {
 
 app.use("/runs/:runId/report", async (req, res, next) => {
   try {
-    requireToken(req);
+    // No token required — the run ID (UUID) is already an opaque secret.
     const runId = req.params.runId;
     const thread = await store.getThread(runId);
     if (!thread) return res.status(404).json({ ok: false, error: "Unknown runId" });
@@ -206,7 +218,16 @@ app.use("/runs/:runId/report", async (req, res, next) => {
 });
 
 app.listen(PORT, () => {
+  const anthropicStatus = process.env.ANTHROPIC_API_KEY ? "✓ set" : "✗ NOT SET — agents will use fallback text";
+  const giphyStatus = process.env.GIPHY_API_KEY ? "✓ set" : "✗ not set — no GIF replies";
+  const tokenStatus = RUNNER_TOKEN ? "✓ set" : "⚠ not set — no auth required";
   // eslint-disable-next-line no-console
-  console.log(`Runner listening on http://localhost:${PORT}`);
+  console.log(`\nRunner listening on http://localhost:${PORT}`);
+  // eslint-disable-next-line no-console
+  console.log(`  ANTHROPIC_API_KEY  ${anthropicStatus}`);
+  // eslint-disable-next-line no-console
+  console.log(`  GIPHY_API_KEY      ${giphyStatus}`);
+  // eslint-disable-next-line no-console
+  console.log(`  RUNNER_TOKEN       ${tokenStatus}\n`);
 });
 

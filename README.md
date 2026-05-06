@@ -25,6 +25,13 @@ Automates the "send Shorts + react + reply" DM loop between two AI agents, then 
 npm install
 ```
 
+Copy and fill in your environment variables:
+
+```bash
+cp .env.example .env
+# edit .env with your keys
+```
+
 Then build everything:
 
 ```bash
@@ -74,36 +81,27 @@ The runner is what the judge UI actually talks to. It runs on your laptop and is
 
 **Start the runner:**
 
-Export the variables first (they'll stick for the rest of your terminal session), then run:
+As long as your `.env` file is filled in, just run:
 
 ```bash
-export RUNNER_TOKEN="your-secret"
-export ALLOWED_ORIGINS="https://<youruser>.github.io"
-export ANTHROPIC_API_KEY="your-anthropic-key"
-export GIPHY_API_KEY="your-giphy-key"   # optional — omit if you don't have one
-
 npm run dev:runner
 ```
 
-> **Common mistake:** don't put `npm run dev:runner` on the same line as an `export` — that's invalid shell syntax. Export first, run second.
-
-Or as a single inline command (no `export` keyword):
-
-```bash
-RUNNER_TOKEN="your-secret" ALLOWED_ORIGINS="https://<youruser>.github.io" GIPHY_API_KEY="your-giphy-key" npm run dev:runner
-```
+The runner loads `.env` from the repo root automatically on startup and prints a status block confirming which keys were found.
 
 **Expose it via tunnel** (pick one):
 
 ```bash
-# Cloudflare Tunnel (recommended — free, no time limit)
+# Cloudflare Tunnel (recommended — free, stable URL per session)
 cloudflared tunnel --url http://localhost:8787
 
 # ngrok
 ngrok http 8787
 ```
 
-Copy the public tunnel URL — you'll need it for the judge UI.
+Copy the public HTTPS tunnel URL that appears in the output — you'll need it as `NEXT_PUBLIC_RUNNER_URL` in GitHub repo variables and in the judge UI form.
+
+> The tunnel URL changes each time you restart it. When it changes, update `NEXT_PUBLIC_RUNNER_URL` in GitHub → Settings → Secrets and variables → Actions → Variables, then re-run the Pages workflow (or just enter the new URL directly in the judge UI form).
 
 **Runner endpoints:**
 
@@ -145,45 +143,49 @@ The judge UI is a fully static Next.js export — no server required. It's desig
 **Run locally:**
 
 ```bash
-export NEXT_PUBLIC_BASE_PATH="/MemeMe"
-export NEXT_PUBLIC_RUNNER_URL="http://localhost:8787"
-export NEXT_PUBLIC_RUNNER_TOKEN="your-secret"
 npm run dev:judge
 ```
 
-Then open `http://localhost:3000/MemeMe`.
+Then open `http://localhost:3000` (or `http://localhost:3000/MemeMe` if `NEXT_PUBLIC_BASE_PATH=/MemeMe` is set in `.env`).
 
-**In the UI you'll set:**
-- **Runner URL** — your tunnel URL (e.g. `https://abc123.trycloudflare.com`)
-- **X-Runner-Token** — the shared secret from `RUNNER_TOKEN`
-- **YouTube Short URL** — the seed video
-- **Judge prompt** — the starting message
-- **Turns** — how many agent exchanges to run (default 8)
+The UI reads `NEXT_PUBLIC_RUNNER_URL` and `NEXT_PUBLIC_RUNNER_TOKEN` from `.env` automatically. Judges just paste a YouTube Short URL, pick two personas, set the number of turns, and hit **Run demo**.
 
-> Note: the runner token is visible in the browser since this is a static site. For a hackathon demo that's fine — just use a throwaway secret.
+> Note: `NEXT_PUBLIC_*` values are baked into the static bundle and visible in the browser source. For a hackathon demo that's fine — just use a throwaway token.
 
-**Deploy to GitHub Pages:**
+**Deploy to GitHub Pages (automated via GitHub Actions):**
 
-```bash
-# Build the static export
-NEXT_PUBLIC_BASE_PATH="/MemeMe" npm run build --workspace apps/judge-ui
+Every push to `main` triggers `.github/workflows/deploy-pages.yml`, which builds the static export and deploys it automatically.
 
-# The export is in apps/judge-ui/out/
-# Push to gh-pages branch or configure GitHub Actions (see below)
-```
+One-time setup in your GitHub repo settings:
 
-Make sure your repo's Pages settings point to the `gh-pages` branch (or `main`/`docs` if you prefer).
+1. **Enable Pages**: Settings → Pages → Source → **GitHub Actions**
+
+2. **Set the runner URL + token as repository variables** (not secrets — they get baked into the static bundle):
+   Settings → Secrets and variables → Actions → **Variables** tab → New repository variable
+   - `NEXT_PUBLIC_RUNNER_URL` → your tunnel URL (e.g. `https://abc123.trycloudflare.com`)
+   - `NEXT_PUBLIC_RUNNER_TOKEN` → your runner token
+
+3. Push to `main` (or trigger manually via Actions → Deploy Judge UI → Run workflow).
+
+Your site will be live at `https://<youruser>.github.io/MemeMe/`.
+
+> **Heads up:** the runner URL changes every time you restart the tunnel. Re-set `NEXT_PUBLIC_RUNNER_URL` in repo variables and re-run the workflow whenever your tunnel URL changes.
 
 ---
 
-### 4. Offline demo (no runner needed)
+### 4. Example report (requires runner)
 
-Generate a pre-baked example report you can open straight from disk — good for showing judges without needing the tunnel up:
+Generate a real live report and save it to `demo/example-reports/run-NNN/`. The runner must already be running.
 
 ```bash
+export RUNNER_TOKEN="your-secret"   # must match what the runner was started with
 npm run demo:example-report
-open demo/example-report/index.html
+
+# Override the seed video or prompt:
+npm run demo:example-report -- --url "https://www.youtube.com/shorts/GVMFbFAsdwE" --prompt "Start a chaotic thread"
 ```
+
+The command prints the exact `open` command to view the report and shows a history of all previous runs.
 
 ---
 
