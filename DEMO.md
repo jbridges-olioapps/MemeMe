@@ -25,6 +25,7 @@ Generate a static example report you can open from disk:
 
 ```bash
 npm run demo:example-report
-open demo/example-report/index.html
+# The command output tells you exactly which file to open, e.g.:
+#   open "/path/to/demo/example-reports/run-001/index.html"
 ```
 

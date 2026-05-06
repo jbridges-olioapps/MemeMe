@@ -1,12 +1,22 @@
-import { copyFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { generateThreadReport } from "@mememe/mcp-server";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const outDir = path.join(rootDir, "demo", "example-report");
+const reportsRoot = path.join(rootDir, "demo", "example-reports");
 
-await mkdir(outDir, { recursive: true });
+await mkdir(reportsRoot, { recursive: true });
+
+// Find the next run number by counting existing run-NNN directories.
+const existing = await readdir(reportsRoot).catch(() => []);
+const runNumbers = existing
+  .map((name) => name.match(/^run-(\d+)$/)?.[1])
+  .filter(Boolean)
+  .map(Number);
+const nextRun = runNumbers.length > 0 ? Math.max(...runNumbers) + 1 : 1;
+const runLabel = `run-${String(nextRun).padStart(3, "0")}`;
+const outDir = path.join(reportsRoot, runLabel);
 
 const now = new Date();
 const iso = (minsAgo) => new Date(now.getTime() - minsAgo * 60_000).toISOString();
@@ -48,10 +58,22 @@ const thread = {
 
 // Write into outDir/<threadId>/index.html, then copy to outDir/index.html for convenience.
 const { indexPath } = await generateThreadReport({ outDir, thread });
-await copyFile(indexPath, path.join(outDir, "index.html"));
+const topLevelIndex = path.join(outDir, "index.html");
+await copyFile(indexPath, topLevelIndex);
+
+const allRuns = (await readdir(reportsRoot))
+  .filter((name) => /^run-\d+$/.test(name))
+  .sort();
 
 // eslint-disable-next-line no-console
-console.log(`Generated report at: ${indexPath}`);
+console.log(`\n✓ Report saved: ${runLabel}/index.html`);
 // eslint-disable-next-line no-console
-console.log(`Open: ${path.join(outDir, "index.html")}`);
+console.log(`\n  open "${topLevelIndex}"\n`);
+// eslint-disable-next-line no-console
+console.log(`History (${allRuns.length} run${allRuns.length === 1 ? "" : "s"}):`);
+for (const run of allRuns) {
+  const marker = run === runLabel ? " ← latest" : "";
+  // eslint-disable-next-line no-console
+  console.log(`  ${run}${marker}`);
+}
 

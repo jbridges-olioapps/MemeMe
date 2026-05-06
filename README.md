@@ -73,11 +73,22 @@ The runner is what the judge UI actually talks to. It runs on your laptop and is
 
 **Start the runner:**
 
+Export the variables first (they'll stick for the rest of your terminal session), then run:
+
 ```bash
 export RUNNER_TOKEN="your-secret"
 export ALLOWED_ORIGINS="https://<youruser>.github.io"
-export GIPHY_API_KEY="your-giphy-key"   # optional
+export GIPHY_API_KEY="your-giphy-key"   # optional — omit if you don't have one
+
 npm run dev:runner
+```
+
+> **Common mistake:** don't put `npm run dev:runner` on the same line as an `export` — that's invalid shell syntax. Export first, run second.
+
+Or as a single inline command (no `export` keyword):
+
+```bash
+RUNNER_TOKEN="your-secret" ALLOWED_ORIGINS="https://<youruser>.github.io" GIPHY_API_KEY="your-giphy-key" npm run dev:runner
 ```
 
 **Expose it via tunnel** (pick one):
