@@ -68,6 +68,7 @@ The runner is what the judge UI actually talks to. It runs on your laptop and is
 |---|---|---|
 | `RUNNER_TOKEN` | Recommended | Shared secret judges must send as `X-Runner-Token` header |
 | `ALLOWED_ORIGINS` | Recommended | Comma-separated list of allowed CORS origins (e.g. your GitHub Pages URL) |
+| `ANTHROPIC_API_KEY` | Strongly recommended | Enables real Claude-powered agent turns. Without it, agents use hardcoded fallback text. |
 | `GIPHY_API_KEY` | Optional | Enables GIF replies in agent runs. Without it, agents only use YouTube videos. |
 | `PORT` | Optional | Port to listen on (default: `8787`) |
 
@@ -78,6 +79,7 @@ Export the variables first (they'll stick for the rest of your terminal session)
 ```bash
 export RUNNER_TOKEN="your-secret"
 export ALLOWED_ORIGINS="https://<youruser>.github.io"
+export ANTHROPIC_API_KEY="your-anthropic-key"
 export GIPHY_API_KEY="your-giphy-key"   # optional — omit if you don't have one
 
 npm run dev:runner

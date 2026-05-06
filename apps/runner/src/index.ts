@@ -2,8 +2,8 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import cors from "cors";
 import { z } from "zod";
-import { ThreadStore, generateThreadReport, searchShorts, validateYouTubeShortUrl } from "@mememe/mcp-server";
-import { searchGifs, getGiphyRemainingCalls } from "@mememe/mcp-server";
+import Anthropic from "@anthropic-ai/sdk";
+import { ThreadStore, generateThreadReport, searchShorts, validateYouTubeShortUrl, searchGifs, getGiphyRemainingCalls, generateAgentTurn, pickTwoPersonas, getPersonaById } from "@mememe/mcp-server";
 
 const PORT = Number(process.env.PORT ?? "8787");
 const RUNNER_TOKEN = process.env.RUNNER_TOKEN ?? "";
@@ -57,6 +57,8 @@ const RunInput = z.object({
   shortUrl: z.string(),
   judgeMessage: z.string().min(1).max(1000),
   turns: z.number().int().min(2).max(20).optional(),
+  personaA: z.string().optional(),
+  personaB: z.string().optional(),
 });
 
 app.post("/run", async (req, res) => {
@@ -67,7 +69,11 @@ app.post("/run", async (req, res) => {
     const validated = validateYouTubeShortUrl(input.shortUrl);
     if (!validated.ok) return res.status(400).json(validated);
 
-    const { threadId } = await store.createThread(["Judge", "AgentA", "AgentB"]);
+    const [defaultA, defaultB] = pickTwoPersonas();
+    const chosenA = (input.personaA ? getPersonaById(input.personaA) : null) ?? defaultA;
+    const chosenB = (input.personaB ? getPersonaById(input.personaB) : null) ?? defaultB;
+
+    const { threadId } = await store.createThread(["Judge", chosenA.name, chosenB.name]);
     const { messageId: seedMessageId } = await store.postMessage({
       threadId,
       from: "Judge",
@@ -77,11 +83,7 @@ app.post("/run", async (req, res) => {
 
     const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
     const reactionPool = [
-      "😂", "😂", "😂",
-      "🔥", "🔥",
-      "💀", "💀",
-      "😭", "😭",
-      "🤣", "🤣",
+      "😂", "😂", "😂", "🔥", "🔥", "💀", "💀", "😭", "😭", "🤣", "🤣",
       "👍", "❤️", "🤯", "💯", "👀", "🙌", "😤", "😍", "🫶", "🫡",
     ] as const;
 
@@ -95,37 +97,16 @@ app.post("/run", async (req, res) => {
       return [first];
     }
 
+    const anthropicKey = process.env.ANTHROPIC_API_KEY ?? "";
     const giphyKey = process.env.GIPHY_API_KEY ?? "";
-    const gifQueries = ["reaction", "lol", "omg", "fire", "this is fine", "mind blown", "no way", "same", "vibe"];
-    const videoTextsA = [
-      "Ok this one reminded me of your whole personality",
-      "bro you NEED to see this",
-      "this was literally made for you",
-      "why does this feel like us",
-    ];
-    const videoTextsB = [
-      "ok I FELT that. counter-pick:",
-      "lmaooo ok but have you seen this one",
-      "same energy honestly",
-      "ok ok ok but THIS though",
-    ];
-    const gifTextsA = [
-      "me watching your last video",
-      "this is my reaction rn",
-      "no words needed",
-      "literally me every time",
-    ];
-    const gifTextsB = [
-      "responding in gif form because words aren't enough",
-      "this is how I feel about what you just sent",
-      "^^ that's all I have to say",
-      "okay but this is my actual face rn",
-    ];
+    const anthropic = anthropicKey ? new Anthropic({ apiKey: anthropicKey }) : null;
+    const availableVideos = searchShorts({ limit: 25 });
 
     let lastMessageId = seedMessageId;
     const maxTurns = input.turns ?? 8;
     for (let i = 0; i < maxTurns; i++) {
-      const from = i % 2 === 0 ? "AgentA" : "AgentB";
+      const currentPersona = i % 2 === 0 ? chosenA : chosenB;
+      const from = currentPersona.name;
 
       for (const reaction of pickReactions()) {
         await store.react({
@@ -136,29 +117,34 @@ app.post("/run", async (req, res) => {
         });
       }
 
-      const useGif = giphyKey && getGiphyRemainingCalls(giphyKey) > 0 && Math.random() < 0.35;
-      if (useGif) {
-        try {
-          const { results } = await searchGifs({ query: pick(gifQueries), apiKey: giphyKey, limit: 10 });
-          if (results.length > 0) {
-            const gif = pick(results);
-            const text = pick(from === "AgentA" ? gifTextsA : gifTextsB);
-            const res = await store.postMessage({ threadId, from, text, attachments: [gif] });
-            lastMessageId = res.messageId;
-            continue;
-          }
-        } catch { /* fall through */ }
+      let text: string;
+      let attachments: Parameters<typeof store.postMessage>[0]["attachments"] = [];
+
+      if (anthropic) {
+        const currentThread = await store.getThread(threadId);
+        const turn = await generateAgentTurn({
+          client: anthropic,
+          persona: currentPersona,
+          thread: currentThread!,
+          availableVideos,
+          gifEnabled: Boolean(giphyKey && getGiphyRemainingCalls(giphyKey) > 0),
+        });
+        text = turn.text;
+        if (turn.attachment?.type === "video") {
+          attachments = [{ type: "video", url: turn.attachment.url }];
+        } else if (turn.attachment?.type === "gif" && giphyKey) {
+          try {
+            const { results } = await searchGifs({ query: turn.attachment.searchQuery, apiKey: giphyKey, limit: 10 });
+            if (results.length > 0) attachments = [pick(results)];
+          } catch { /* no gif */ }
+        }
+      } else {
+        const chosen = pick(availableVideos);
+        text = i % 2 === 0 ? "bro you NEED to see this" : "ok ok ok but THIS though";
+        attachments = [{ type: "video", url: chosen.url }];
       }
 
-      const chosen = pick(searchShorts({ limit: 25 }));
-      const text = pick(from === "AgentA" ? videoTextsA : videoTextsB);
-
-      const { messageId } = await store.postMessage({
-        threadId,
-        from,
-        text,
-        attachments: [{ type: "video", url: chosen.url }],
-      });
+      const { messageId } = await store.postMessage({ threadId, from, text, attachments });
       lastMessageId = messageId;
     }
 
@@ -173,6 +159,10 @@ app.post("/run", async (req, res) => {
       runId: threadId,
       reportUrl,
       reportPath: indexPath,
+      personas: {
+        A: { id: chosenA.id, name: chosenA.name },
+        B: { id: chosenB.id, name: chosenB.name },
+      },
     });
   } catch (err) {
     const anyErr = err as any;

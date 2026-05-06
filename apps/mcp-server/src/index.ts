@@ -1,10 +1,12 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import Anthropic from "@anthropic-ai/sdk";
 import { ThreadStore } from "./threadStore.js";
 import { searchShorts, validateYouTubeShortUrl } from "./shorts.js";
 import { generateThreadReport } from "./report.js";
 import { searchGifs, getGiphyRemainingCalls } from "./giphy.js";
+import { generateAgentTurn, pickTwoPersonas, getPersonaById, PERSONAS } from "./agents.js";
 
 const server = new McpServer({
   name: "mememe-mcp-server",
@@ -157,21 +159,37 @@ server.tool(
 );
 
 server.tool(
+  "list_personas",
+  "List all available agent personas.",
+  {},
+  async () => {
+    const list = PERSONAS.map((p) => ({ id: p.id, name: p.name }));
+    return { content: [{ type: "text", text: JSON.stringify({ personas: list }, null, 2) }] };
+  },
+);
+
+server.tool(
   "run_from_judge_prompt",
-  "Convenience tool: create a thread, seed a judge message, simulate a bounded turn-taking loop, and (later) generate a report.",
+  "Convenience tool: create a thread, seed a judge message, simulate a bounded turn-taking loop, and generate a report.",
   {
     shortUrl: z.string(),
     judgeMessage: z.string(),
     turns: z.number().int().min(2).max(20).optional(),
+    personaA: z.string().optional(),
+    personaB: z.string().optional(),
   },
-  async ({ shortUrl, judgeMessage, turns }) => {
+  async ({ shortUrl, judgeMessage, turns, personaA, personaB }) => {
     const validated = validateYouTubeShortUrl(shortUrl);
     if (!validated.ok) {
       return { content: [{ type: "text", text: JSON.stringify(validated, null, 2) }] };
     }
 
+    const [defaultA, defaultB] = pickTwoPersonas();
+    const chosenA = (personaA ? getPersonaById(personaA) : null) ?? defaultA;
+    const chosenB = (personaB ? getPersonaById(personaB) : null) ?? defaultB;
+
     const maxTurns = turns ?? 8;
-    const participants = ["Judge", "AgentA", "AgentB"];
+    const participants = ["Judge", chosenA.name, chosenB.name];
     const { threadId } = await store.createThread(participants);
 
     const { messageId: seedMessageId } = await store.postMessage({
@@ -182,26 +200,11 @@ server.tool(
     });
 
     const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
-    // Weighted pool: common ones appear more often
     const reactionPool = [
-      "😂", "😂", "😂",
-      "🔥", "🔥",
-      "💀", "💀",
-      "😭", "😭",
-      "🤣", "🤣",
-      "👍",
-      "❤️",
-      "🤯",
-      "💯",
-      "👀",
-      "🙌",
-      "😤",
-      "😍",
-      "🫶",
-      "🫡",
+      "😂", "😂", "😂", "🔥", "🔥", "💀", "💀", "😭", "😭", "🤣", "🤣",
+      "👍", "❤️", "🤯", "💯", "👀", "🙌", "😤", "😍", "🫶", "🫡",
     ] as const;
 
-    // ~25% chance of a second reaction stacked on top; never three
     function pickReactions(): string[] {
       const first = pick([...reactionPool]);
       if (Math.random() < 0.25) {
@@ -212,64 +215,48 @@ server.tool(
       return [first];
     }
 
+    const anthropicKey = process.env.ANTHROPIC_API_KEY ?? "";
     const giphyKey = process.env.GIPHY_API_KEY ?? "";
-    const gifQueries = ["reaction", "lol", "omg", "fire", "this is fine", "mind blown", "no way", "same", "vibe"];
-
-    const videoTextsA = [
-      `Ok this one reminded me of your whole personality`,
-      `bro you NEED to see this`,
-      `this was literally made for you`,
-      `why does this feel like us`,
-    ];
-    const videoTextsB = [
-      `ok I FELT that. counter-pick:`,
-      `lmaooo ok but have you seen this one`,
-      `same energy honestly`,
-      `ok ok ok but THIS though`,
-    ];
-    const gifTextsA = [
-      `me watching your last video`,
-      `this is my reaction rn`,
-      `no words needed`,
-      `literally me every time`,
-    ];
-    const gifTextsB = [
-      `responding in gif form because words aren't enough`,
-      `this is how I feel about what you just sent`,
-      `^^ that's all I have to say`,
-      `okay but this is my actual face rn`,
-    ];
+    const anthropic = anthropicKey ? new Anthropic({ apiKey: anthropicKey }) : null;
+    const availableVideos = searchShorts({ limit: 25 });
 
     let lastMessageId = seedMessageId;
     for (let i = 0; i < maxTurns; i++) {
-      const from = i % 2 === 0 ? "AgentA" : "AgentB";
+      const currentPersona = i % 2 === 0 ? chosenA : chosenB;
+      const from = currentPersona.name;
 
       for (const reaction of pickReactions()) {
         await store.react({ threadId, messageId: lastMessageId, from, reaction: reaction as Parameters<typeof store.react>[0]["reaction"] });
       }
 
-      // ~35% chance to reply with a GIF instead of a video (only if key is set and quota remains)
-      const useGif = giphyKey && getGiphyRemainingCalls(giphyKey) > 0 && Math.random() < 0.35;
+      let text: string;
+      let attachments: Parameters<typeof store.postMessage>[0]["attachments"] = [];
 
-      if (useGif) {
-        try {
-          const q = pick(gifQueries);
-          const { results } = await searchGifs({ query: q, apiKey: giphyKey, limit: 10 });
-          if (results.length > 0) {
-            const gif = pick(results);
-            const text = pick(from === "AgentA" ? gifTextsA : gifTextsB);
-            const res = await store.postMessage({ threadId, from, text, attachments: [gif] });
-            lastMessageId = res.messageId;
-            continue;
-          }
-        } catch {
-          // fall through to video if GIPHY fails
+      if (anthropic) {
+        const currentThread = await store.getThread(threadId);
+        const turn = await generateAgentTurn({
+          client: anthropic,
+          persona: currentPersona,
+          thread: currentThread!,
+          availableVideos,
+          gifEnabled: Boolean(giphyKey && getGiphyRemainingCalls(giphyKey) > 0),
+        });
+        text = turn.text;
+        if (turn.attachment?.type === "video") {
+          attachments = [{ type: "video", url: turn.attachment.url }];
+        } else if (turn.attachment?.type === "gif" && giphyKey) {
+          try {
+            const { results } = await searchGifs({ query: turn.attachment.searchQuery, apiKey: giphyKey, limit: 10 });
+            if (results.length > 0) attachments = [pick(results)];
+          } catch { /* fall through — no gif */ }
         }
+      } else {
+        const chosen = pick(availableVideos);
+        text = i % 2 === 0 ? "bro you NEED to see this" : "ok ok ok but THIS though";
+        attachments = [{ type: "video", url: chosen.url }];
       }
 
-      const chosen = pick(searchShorts({ limit: 25 }));
-      const text = pick(from === "AgentA" ? videoTextsA : videoTextsB);
-      const res = await store.postMessage({ threadId, from, text, attachments: [{ type: "video", url: chosen.url }] });
+      const res = await store.postMessage({ threadId, from, text, attachments });
       lastMessageId = res.messageId;
     }
 
@@ -281,6 +268,7 @@ server.tool(
             {
               ok: true,
               threadId,
+              personas: { A: { id: chosenA.id, name: chosenA.name }, B: { id: chosenB.id, name: chosenB.name } },
               reportPath: null,
               note: "Use report_generate to produce a static HTML report.",
             },
