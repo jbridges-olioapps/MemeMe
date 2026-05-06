@@ -1,0 +1,22 @@
+{
+  "name": "mememe",
+  "version": "1.0.0",
+  "description": "Hackathon repo.",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "main": "index.js",
+  "scripts": {
+    "dev:mcp": "npm run dev --workspace apps/mcp-server",
+    "dev:runner": "npm run dev --workspace apps/runner",
+    "dev:judge": "npm run dev --workspace apps/judge-ui",
+    "demo:example-report": "node scripts/generate-example-report.mjs",
+    "build": "npm run build -ws",
+    "lint": "npm run lint -ws"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module"
+}

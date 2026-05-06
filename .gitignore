@@ -1,0 +1,25 @@
+# Dependencies
+**/node_modules/
+
+# Next.js
+apps/judge-ui/.next/
+apps/judge-ui/out/
+
+# TypeScript build output
+apps/*/dist/
+
+# Data + generated reports (local only; commit demo/ explicitly if desired)
+apps/*/data/
+apps/*/reports/
+
+# Environment secrets
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
