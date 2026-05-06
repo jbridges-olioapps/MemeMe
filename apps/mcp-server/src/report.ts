@@ -8,6 +8,28 @@ export type ReportSeed = {
   channel?: string;
 };
 
+// Map persona display names → avatar emoji
+const PERSONA_EMOJI: Record<string, string> = {
+  "Hype Beast": "🔥",
+  "Chaos Gremlin": "😈",
+  "Film Snob": "🎬",
+  "Vintage Hipster": "🎸",
+  "Gym Rat": "💪",
+  "Corporate Girlie": "💼",
+  "Conspiracy Theorist": "🔭",
+  "Theater Kid": "🎭",
+  "Boomer Dad": "📻",
+  "Anxious Overthinker": "😰",
+};
+
+function personaEmoji(name: string): string {
+  return PERSONA_EMOJI[name] ?? name.charAt(0);
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 function escapeHtml(s: string) {
   return s
     .replaceAll("&", "&amp;")
@@ -123,8 +145,7 @@ export async function generateThreadReport(args: {
   const seedMessage = seedIndex >= 0 ? messages[seedIndex] : null;
   const conversation = seedIndex >= 0 ? messages.slice(seedIndex + 1) : messages;
 
-  // If the runner didn't pass seed metadata explicitly but we have the seed message,
-  // synthesize a minimal ReportSeed from the attachment URL.
+  // Synthesize a minimal ReportSeed from the seed message attachment if not passed explicitly.
   const seedFromMessage: ReportSeed | undefined = (() => {
     if (!seedMessage) return undefined;
     const att = seedMessage.attachments.find((a) => a.type === "video");
@@ -134,12 +155,19 @@ export async function generateThreadReport(args: {
   const seed = args.seed ?? seedFromMessage;
   const seedText = seedMessage?.text ?? "";
 
-  // Sides: alternate left/right for the two non-Seed participants.
+  // Determine left/right from the order speakers appear in conversation.
   const speakers = Array.from(new Set(conversation.map((m) => m.from)));
-  const sideFor = (from: string): "left" | "right" => (from === speakers[0] ? "left" : "right");
+  const sideFor = (from: string): "left" | "right" | "center" =>
+    from === speakers[0] ? "left" : from === speakers[1] ? "right" : "center";
 
   const messagesHtml = conversation
-    .map((m) => {
+    .map((m, i) => {
+      const side = sideFor(m.from);
+      const displayName = escapeHtml(m.from);
+      const emoji = personaEmoji(m.from);
+      const delay = (i * 0.55).toFixed(2);
+      const time = formatTime(m.createdAt);
+
       const embeds = m.attachments
         .map((a) => {
           if (a.type === "video") return youtubeVideoCard(a.url);
@@ -149,99 +177,334 @@ export async function generateThreadReport(args: {
         .filter((x): x is string => Boolean(x))
         .join("\n");
 
-      const reactions = m.reactions.length
+      const reactionsHtml = m.reactions.length
         ? `<div class="reactions">${m.reactions
             .map((r) => `<span class="reaction" title="${escapeHtml(r.from)}">${escapeHtml(r.reaction)}</span>`)
-            .join(" ")}</div>`
+            .join("")}</div>`
         : "";
 
-      const side = sideFor(m.from);
+      const senderLabel = `<div class="sender-label">${emoji} ${displayName}</div>`;
+
+      if (side === "center") {
+        return `
+        <div class="msg center" style="animation-delay:${delay}s">
+          <div class="msg-body">
+            ${senderLabel}
+            <div class="bubble">
+              <div class="text">${escapeHtml(m.text)}</div>
+              ${embeds}
+              <div class="timestamp">${time}</div>
+            </div>
+            ${reactionsHtml}
+          </div>
+        </div>`;
+      }
+
+      if (side === "right") {
+        return `
+        <div class="msg right" style="animation-delay:${delay}s">
+          <div class="msg-body">
+            ${senderLabel}
+            <div class="bubble">
+              <div class="text">${escapeHtml(m.text)}</div>
+              ${embeds}
+              <div class="timestamp">${time}</div>
+            </div>
+            ${reactionsHtml}
+          </div>
+        </div>`;
+      }
+
+      // left
       return `
-        <div class="msg ${side}">
-          <div class="meta">
-            <span class="from">${escapeHtml(m.from)}</span>
-            <span class="time">${escapeHtml(new Date(m.createdAt).toLocaleString())}</span>
+        <div class="msg left" style="animation-delay:${delay}s">
+          <div class="msg-body">
+            ${senderLabel}
+            <div class="bubble">
+              <div class="text">${escapeHtml(m.text)}</div>
+              ${embeds}
+              <div class="timestamp">${time}</div>
+            </div>
+            ${reactionsHtml}
           </div>
-          <div class="bubble">
-            <div class="text">${escapeHtml(m.text)}</div>
-            ${embeds}
-            ${reactions}
-          </div>
-        </div>
-      `;
+        </div>`;
     })
     .join("\n");
+
+  const css = `
+    :root {
+      --bg: #0b0c10;
+      --surface: rgba(255,255,255,.06);
+      --border: rgba(255,255,255,.09);
+      --accent-a: rgba(99,102,241,.18);
+      --accent-a-border: rgba(99,102,241,.30);
+      --accent-b: rgba(16,185,129,.14);
+      --accent-b-border: rgba(16,185,129,.28);
+      --accent-you: rgba(245,158,11,.12);
+      --accent-you-border: rgba(245,158,11,.28);
+      --text: #e7e7e7;
+      --muted: rgba(255,255,255,.45);
+      --radius-bubble: 18px;
+      --radius-sm: 10px;
+      color-scheme: light dark;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+    a { color: inherit; }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: rgba(11,12,16,.92);
+      backdrop-filter: blur(10px);
+      z-index: 10;
+    }
+    .header-brand {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin: 0 0 4px;
+      background: linear-gradient(135deg, #fff 40%, rgba(99,102,241,.85));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header-meta { font-size: 12px; color: var(--muted); }
+    .header-meta code {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      background: rgba(255,255,255,.07);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    main { max-width: 760px; margin: 0 auto; padding: 20px 14px 60px; }
+
+    /* ── Seed panel ─────────────────────────────────────────── */
+    .seed-panel {
+      margin: 6px 0 28px;
+      padding: 16px 16px 18px;
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(99,102,241,.18) 0%, rgba(99,102,241,.06) 100%);
+      border: 1px solid rgba(99,102,241,.32);
+    }
+    .seed-eyebrow {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      font-weight: 700;
+      margin-bottom: 10px;
+      color: #b4b8ff;
+    }
+    .seed-body {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 600px) {
+      .seed-body { grid-template-columns: 1.1fr .9fr; align-items: start; }
+    }
+    .seed-title { font-size: 17px; font-weight: 700; line-height: 1.3; margin-bottom: 4px; }
+    .seed-channel { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+    .seed-note {
+      margin-top: 8px;
+      font-size: 13px;
+      line-height: 1.45;
+      padding: 8px 10px;
+      border-left: 2px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.04);
+      border-radius: 0 6px 6px 0;
+      white-space: pre-wrap;
+    }
+
+    /* ── Message row ────────────────────────────────────────── */
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes msgInCenter {
+      from { opacity: 0; transform: scale(0.94); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+
+    .msg {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      margin: 8px 0 22px;
+      opacity: 0;
+      animation: msgIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+    .msg.center {
+      justify-content: center;
+      animation-name: msgInCenter;
+    }
+    .msg.right { flex-direction: row-reverse; }
+    .msg.left  { flex-direction: row; }
+
+    /* ── Bubble wrapper (holds sender label + bubble + reactions) */
+    .msg-body {
+      position: relative;
+      max-width: 580px;
+      padding-bottom: 18px;
+    }
+    .msg.center .msg-body { max-width: 480px; }
+
+    /* ── Sender label (above bubble) ────────────────────────── */
+    .sender-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 5px;
+      padding: 0 4px;
+    }
+    .msg.right .sender-label { text-align: right; }
+    .msg.center .sender-label { text-align: center; }
+
+    /* ── Bubble ─────────────────────────────────────────────── */
+    .bubble {
+      padding: 10px 13px 8px;
+      border-radius: var(--radius-bubble);
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .msg.left  .bubble {
+      border-bottom-left-radius: 4px;
+      background: var(--accent-a);
+      border-color: var(--accent-a-border);
+    }
+    .msg.right .bubble {
+      border-bottom-right-radius: 4px;
+      background: var(--accent-b);
+      border-color: var(--accent-b-border);
+    }
+    .msg.center .bubble {
+      background: var(--accent-you);
+      border-color: var(--accent-you-border);
+      border-radius: var(--radius-bubble);
+      text-align: center;
+    }
+
+    .text { white-space: pre-wrap; }
+    .timestamp {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: right;
+      margin-top: 6px;
+    }
+    .msg.center .timestamp { text-align: center; }
+
+    /* ── Reaction badges ────────────────────────────────────── */
+    .reactions {
+      position: absolute;
+      bottom: 0;
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .msg.left  .reactions { left: 10px; }
+    .msg.right .reactions { right: 10px; }
+    .msg.center .reactions { left: 50%; transform: translateX(-50%); }
+
+    .reaction {
+      font-size: 17px;
+      line-height: 1;
+      background: rgba(30,30,45,.97);
+      border: 1px solid rgba(255,255,255,.22);
+      border-radius: 999px;
+      padding: 3px 7px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.7);
+      cursor: default;
+    }
+
+    /* ── Video card ─────────────────────────────────────────── */
+    .video-card {
+      margin-top: 10px;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,.30);
+    }
+    .thumb-link { display: block; position: relative; text-decoration: none; }
+    .thumb { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }
+    .play-badge {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 8px 10px;
+      background: linear-gradient(transparent, rgba(0,0,0,.75));
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .embed-toggle { padding: 8px 10px; font-size: 12px; color: var(--muted); }
+    .embed-toggle summary { cursor: pointer; user-select: none; }
+    .embed { border-top: 1px solid var(--border); }
+    iframe { width: 100%; aspect-ratio: 9/16; border: 0; background: #000; }
+
+    /* ── GIF card ───────────────────────────────────────────── */
+    .gif-card {
+      margin-top: 10px;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,.20);
+      display: inline-flex;
+      flex-direction: column;
+      max-width: 300px;
+    }
+    .gif-img { display: block; width: 100%; max-width: 300px; height: auto; }
+    .gif-footer {
+      padding: 5px 8px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .giphy-attr { text-decoration: none; font-weight: 600; }
+    .giphy-attr:hover { text-decoration: underline; }
+    .gif-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    .report-footer { margin-top: 40px; font-size: 12px; color: var(--muted); text-align: center; }
+  `;
 
   const html = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MemeMe Report — ${escapeHtml(args.thread.id)}</title>
-    <style>
-      :root { color-scheme: light dark; }
-      body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background: #0b0c10; color: #e7e7e7; }
-      header { padding: 18px 20px; border-bottom: 1px solid rgba(255,255,255,.08); position: sticky; top: 0; background: rgba(11,12,16,.92); backdrop-filter: blur(8px); }
-      h1 { font-size: 16px; margin: 0 0 6px; font-weight: 600; }
-      .sub { font-size: 12px; opacity: .85; }
-      main { max-width: 920px; margin: 0 auto; padding: 18px 14px 40px; }
-
-      .seed-panel { margin: 6px 0 22px; padding: 16px 16px 18px; border-radius: 16px;
-        background: linear-gradient(180deg, rgba(99,102,241,.18) 0%, rgba(99,102,241,.06) 100%);
-        border: 1px solid rgba(99,102,241,.32);
-      }
-      .seed-eyebrow { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
-        opacity: .85; font-weight: 700; margin-bottom: 10px; color: #b4b8ff; }
-      .seed-body { display: grid; gap: 14px; grid-template-columns: 1fr; }
-      @media (min-width: 640px) { .seed-body { grid-template-columns: 1.1fr .9fr; align-items: start; } }
-      .seed-title { font-size: 17px; font-weight: 700; line-height: 1.3; margin-bottom: 4px; }
-      .seed-channel { font-size: 13px; opacity: .8; margin-bottom: 8px; }
-      .seed-note { margin-top: 8px; font-size: 13px; line-height: 1.45; opacity: .9;
-        padding: 8px 10px; border-left: 2px solid rgba(255,255,255,.18); background: rgba(255,255,255,.04);
-        border-radius: 0 6px 6px 0; white-space: pre-wrap; }
-
-      .msg { display: flex; margin: 14px 0; }
-      .msg.left { justify-content: flex-start; }
-      .msg.right { justify-content: flex-end; }
-      .bubble { max-width: 640px; width: 100%; padding: 12px 12px 10px; border-radius: 14px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08); }
-      .msg.right .bubble { background: rgba(99,102,241,.14); border-color: rgba(99,102,241,.25); }
-      .meta { display: flex; gap: 10px; font-size: 12px; opacity: .85; margin-bottom: 8px; align-items: baseline; }
-      .from { font-weight: 600; }
-      .time { opacity: .8; }
-      .text { white-space: pre-wrap; line-height: 1.3; }
-      .video-card { margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.25); }
-      .thumb-link { display: block; position: relative; text-decoration: none; }
-      .thumb { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }
-      .play-badge { position: absolute; bottom: 0; left: 0; right: 0; padding: 8px 10px; background: linear-gradient(transparent, rgba(0,0,0,.75)); color: #fff; font-size: 13px; font-weight: 600; }
-      .embed-toggle { padding: 8px 10px; font-size: 12px; opacity: .85; }
-      .embed-toggle summary { cursor: pointer; user-select: none; }
-      .embed { border-top: 1px solid rgba(255,255,255,.08); }
-      iframe { width: 100%; aspect-ratio: 9/16; border: 0; background: #000; }
-      .gif-card { margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.20); display: inline-flex; flex-direction: column; max-width: 320px; }
-      .gif-img { display: block; width: 100%; max-width: 320px; height: auto; }
-      .gif-footer { padding: 5px 8px; display: flex; gap: 8px; align-items: center; font-size: 11px; opacity: .8; }
-      .giphy-attr { color: inherit; text-decoration: none; font-weight: 600; }
-      .giphy-attr:hover { text-decoration: underline; }
-      .gif-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
-      .reactions { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
-      .reaction { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.10); border-radius: 999px; padding: 2px 8px; font-size: 12px; }
-      footer { margin-top: 22px; font-size: 12px; opacity: .75; }
-      a { color: inherit; }
-    </style>
+    <title>MemeMe™ — Conversation Report</title>
+    <style>${css}</style>
   </head>
   <body>
     <header>
-      <h1>MemeMe — Conversation Report</h1>
-      <div class="sub">
-        Thread: <code>${escapeHtml(args.thread.id)}</code> · Participants: ${escapeHtml(speakers.join(", "))} · Messages: ${conversation.length}
+      <div class="header-brand">MemeMe™</div>
+      <div class="header-meta">
+        ${escapeHtml(speakers.join(" vs "))}
+        &nbsp;·&nbsp;
+        ${conversation.length} messages
+        &nbsp;·&nbsp;
+        <code>${escapeHtml(args.thread.id)}</code>
       </div>
     </header>
     <main>
       ${seedPanel(seed, seedText)}
       ${messagesHtml || "<p>No messages yet.</p>"}
-      <footer>
-        Generated at ${escapeHtml(new Date().toLocaleString())}.
-      </footer>
+      <div class="report-footer">
+        Generated at ${escapeHtml(new Date().toLocaleString())}
+      </div>
     </main>
   </body>
 </html>`;

@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MemeMe™ — Conversation Report</title>
+    <style>
+    :root {
+      --bg: #0b0c10;
+      --surface: rgba(255,255,255,.06);
+      --border: rgba(255,255,255,.09);
+      --accent-a: rgba(99,102,241,.18);
+      --accent-a-border: rgba(99,102,241,.30);
+      --accent-b: rgba(16,185,129,.14);
+      --accent-b-border: rgba(16,185,129,.28);
+      --accent-you: rgba(245,158,11,.12);
+      --accent-you-border: rgba(245,158,11,.28);
+      --text: #e7e7e7;
+      --muted: rgba(255,255,255,.45);
+      --radius-bubble: 18px;
+      --radius-sm: 10px;
+      color-scheme: light dark;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+    a { color: inherit; }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: rgba(11,12,16,.92);
+      backdrop-filter: blur(10px);
+      z-index: 10;
+    }
+    .header-brand {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin: 0 0 4px;
+      background: linear-gradient(135deg, #fff 40%, rgba(99,102,241,.85));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header-meta { font-size: 12px; color: var(--muted); }
+    .header-meta code {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      background: rgba(255,255,255,.07);
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    main { max-width: 760px; margin: 0 auto; padding: 20px 14px 60px; }
+
+    /* ── Message row ────────────────────────────────────────── */
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes msgInCenter {
+      from { opacity: 0; transform: scale(0.94); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+
+    .msg {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      margin: 8px 0 22px;
+      opacity: 0;
+      animation: msgIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+    .msg.center {
+      justify-content: center;
+      animation-name: msgInCenter;
+    }
+    .msg.right { flex-direction: row-reverse; }
+    .msg.left  { flex-direction: row; }
+
+    /* ── Avatar ─────────────────────────────────────────────── */
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+      border: 1px solid var(--border);
+    }
+    .av-left  { background: rgba(99,102,241,.18); }
+    .av-right { background: rgba(16,185,129,.18); }
+
+    /* ── Bubble wrapper (holds bubble + reaction badge) ─────── */
+    .msg-body {
+      position: relative;
+      max-width: 580px;
+      padding-bottom: 18px; /* room for reaction badges */
+    }
+    .msg.center .msg-body { max-width: 480px; }
+
+    /* ── Bubble ─────────────────────────────────────────────── */
+    .bubble {
+      padding: 10px 13px 8px;
+      border-radius: var(--radius-bubble);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      position: relative;
+    }
+    .msg.left  .bubble {
+      border-bottom-left-radius: 4px;
+      background: var(--accent-a);
+      border-color: var(--accent-a-border);
+    }
+    .msg.right .bubble {
+      border-bottom-right-radius: 4px;
+      background: var(--accent-b);
+      border-color: var(--accent-b-border);
+    }
+    .msg.center .bubble {
+      background: var(--accent-you);
+      border-color: var(--accent-you-border);
+      border-radius: var(--radius-bubble);
+      text-align: center;
+    }
+
+    .sender-name {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+    .text { white-space: pre-wrap; }
+    .timestamp {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: right;
+      margin-top: 6px;
+    }
+    .msg.center .timestamp { text-align: center; }
+
+    /* ── Reaction badges ────────────────────────────────────── */
+    .reactions {
+      position: absolute;
+      bottom: 0;
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .msg.left  .reactions { left: 10px; }
+    .msg.right .reactions { right: 10px; }
+    .msg.center .reactions { left: 50%; transform: translateX(-50%); }
+
+    .reaction {
+      font-size: 17px;
+      line-height: 1;
+      background: rgba(255,255,255,.10);
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 999px;
+      padding: 3px 7px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.5);
+      cursor: default;
+    }
+
+    /* ── Video card ─────────────────────────────────────────── */
+    .video-card {
+      margin-top: 10px;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,.30);
+    }
+    .thumb-link { display: block; position: relative; text-decoration: none; }
+    .thumb { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }
+    .play-badge {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 8px 10px;
+      background: linear-gradient(transparent, rgba(0,0,0,.75));
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .embed-toggle { padding: 8px 10px; font-size: 12px; color: var(--muted); }
+    .embed-toggle summary { cursor: pointer; user-select: none; }
+    .embed { border-top: 1px solid var(--border); }
+    iframe { width: 100%; aspect-ratio: 9/16; border: 0; background: #000; }
+
+    /* ── GIF card ───────────────────────────────────────────── */
+    .gif-card {
+      margin-top: 10px;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: rgba(0,0,0,.20);
+      display: inline-flex;
+      flex-direction: column;
+      max-width: 300px;
+    }
+    .gif-img { display: block; width: 100%; max-width: 300px; height: auto; }
+    .gif-footer {
+      padding: 5px 8px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .giphy-attr { text-decoration: none; font-weight: 600; }
+    .giphy-attr:hover { text-decoration: underline; }
+    .gif-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    .report-footer { margin-top: 40px; font-size: 12px; color: var(--muted); text-align: center; }
+  </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-brand">MemeMe™</div>
+      <div class="header-meta">
+        Chaos Gremlin vs Gym Rat
+        &nbsp;·&nbsp;
+        9 messages
+        &nbsp;·&nbsp;
+        <code>thread_f9f9f8d1-5251-4766-be91-2af3960ee677</code>
+      </div>
+    </header>
+    <main>
+      
+        <div class="msg center" style="animation-delay:0.00s">
+          <div class="msg-body">
+            <div class="bubble">
+              <div class="sender-name">You</div>
+              <div class="text">Start a fun DM thread about this video. React to it, share another one back.</div>
+              
+    <div class="video-card">
+      <a class="thumb-link" href="https://www.youtube.com/shorts/GVMFbFAsdwE" target="_blank" rel="noreferrer">
+        <img class="thumb" src="https://i.ytimg.com/vi/GVMFbFAsdwE/hqdefault.jpg" alt="Video thumbnail" loading="lazy" />
+        <div class="play-badge">▶ Watch on YouTube</div>
+      </a>
+      <details class="embed-toggle">
+        <summary>Embed in page</summary>
+        <div class="embed">
+          <iframe
+            src="https://www.youtube-nocookie.com/embed/GVMFbFAsdwE?rel=0"
+            title="YouTube embed"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen
+            loading="lazy"
+          ></iframe>
+        </div>
+      </details>
+    </div>
+  
+              <div class="timestamp">01:24 PM</div>
+            </div>
+            <div class="reactions"><span class="reaction" title="Chaos Gremlin">🔥</span></div>
+          </div>
+        </div>
+
+        <div class="msg left" style="animation-delay:0.55s">
+          <div class="avatar av-left" title="Chaos Gremlin">😈</div>
+          <div class="msg-body">
+            <div class="bubble">
+              <div class="sender-name">Chaos Gremlin</div>
+              <div class="text">baby shark just unlocked a core memory i didnt know i had and now its 3am and im spiraling into the abyss of children&#039;s music hits. counterattack incoming</div>
+              
+    <div class="video-card">
+      <a class="thumb-link" href="https://www.youtube.com/shorts/LftGCWCMgSQ" target="_blank" rel="noreferrer">
+        <img class="thumb" src="https://i.ytimg.com/vi/LftGCWCMgSQ/hqdefault.jpg" alt="Video thumbnail" loading="lazy" />
+        <div class="play-badge">▶ Watch on YouTube</div>
+      </a>
+      <details class="embed-toggle">
+        <summary>Embed in page</summary>
+        <div class="embed">
+          <iframe
+            src="https://www.youtube-nocookie.com/embed/LftGCWCMgSQ?rel=0"
+            title="YouTube embed"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen
+            loading="lazy"
+          ></iframe>
+        </div>
+      </details>
+    </div>
+  
+              <div class="timestamp">01:24 PM</div>
+            </div>
+            <div class="reactions"><span class="reaction" title="Gym Rat">😭</span></div>
+          </div>
+        </div>
+
+        <div class="msg right" style="animation-delay:1.10s">
+          <div class="msg-body">
+            <div class="bubble">
+              <div class="sender-name">Gym Rat</div>
+              <div class="text">bro uptown funk has those MOVES that&#039;ll get your heart rate up and calories burning ngl. that&#039;s cardio energy right there, let&#039;s get it 💪</div>
+              
+    <div class="video-card">
+      <a class="thumb-link" href="https://www.youtube.com/shorts/dQw4w9WgXcQ" target="_blank" rel="noreferrer">
+        <img class="thumb" src="https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" alt="Video thumbnail" loading="lazy" />
+        <div class="play-badge">▶ Watch on YouTube</div>
+      </a>
+      <details class="embed-toggle">
+        <summary>Embed in page</summary>
+        <div class="embed">
+          <iframe
+            src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?rel=0"
+            title="YouTube embed"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen
+            loading="lazy"
+          ></iframe>
+        </div>
+      </details>
+    </div>
+  
+              <div class="timestamp">01:24 PM</div>
+            </div>
+            <div class="reactions"><span class="reaction" title="Chaos Gremlin">🫶</span></div>
+          </div>
+          <div class="avatar av-right" title="Gym Rat">💪</div>
+        </div>
+
+        <div class="msg left" style="animation-delay:1.65s">
+          <div class="avatar av-left" title="Chaos Gremlin">😈</div>
+          <div class="msg-body">
+            <div class="bubble">
+              <div class="sender-name">Chaos Gremlin</div>
+              <div class="text">gym rat u think uptown funk is cardio?? despacito is the REAL workout it literally rewires ur brain chemistry and makes u move ur hips in ways that defy physics</div>
+              
+    <div class="video-card">
+      <a class="thumb-link" href="https://www.youtube.com/shorts/kJQP7kiw5Fk" target="_blank" rel="noreferrer">
+        <img class="thumb" src="https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg" alt="Video thumbnail" loading="lazy" />
+        <div class="play-badge">▶ Watch on YouTube</div>
+      </a>
+      <details class="embed-toggle">
+        <summary>Embed in page</summary>
+        <div class="embed">
+          <iframe
+            src="https://www.youtube-nocookie.com/embed/kJQP7kiw5Fk?rel=0"
+            title="YouTube embed"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen
+            loading="lazy"
+          ></iframe>
+        </div>
+      </details>
+    </div>
+  
+              <div class="timestamp">01:24 PM</div>
+            </div>
+            <div class="reactions"><span class="reaction" title="Gym Rat">😂</span></div>
+          </div>
+        </div>
+
+        <div class="msg right" style="animation-delay:2.20s">
+          <div class="msg-body">
+            <div class="bubble">
+              <div class="sender-name">Gym Rat</div>
+              <div class="text">bro DESPACITO?? that hip movement is literally building core strength and glute activation, the gains are REAL. but let me hit you with the ultimate full-body workout anthem 🔥</div>
+              
+    <div class="video-card">
+      <a class="thumb-link" href="https://www.youtube.com/shorts/8UFIYGkROII" target="_blank" rel="noreferrer">
+        <img class="thumb" src="https://i.ytimg.com/vi/8UFIYGkROII/hqdefault.jpg" alt="Video thumbnail" loading="lazy" />
+        <div class="play-badge">▶ Watch on YouTube</div>
+      </a>
+      <details class="embed-toggle">
+        <summary>Embed in page</summary>
+        <div class="embed">
+          <iframe
+            src="https://www.youtube-nocookie.com/embed/8UFIYGkROII?rel=0"
+            title="YouTube embed"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen
+            loading="lazy"
+          ></iframe>
+        </div>
+      </details>
+    </div>
+  
+              <div class="timestamp">01:24 PM</div>
+            </div>
+            <div class="reactions"><span class="reaction" title="Chaos Gremlin">👍</span></div>
+          </div>
+          <div class="avatar av-right" title="Gym Rat">💪</div>
+        </div>
+
+        <div class="msg left" style="animation-delay:2.75s">
+          <div class="avatar av-left" title="Chaos Gremlin">😈</div>
+          <div class="msg-body">
+            <div class="bubble">
+              <div class="sender-name">Chaos Gremlin</div>
+              <div class="text">wait wait WAIT crank that soulja boy is literally the glitch in the matrix where dancing and cardio become ONE and the same and ur bones start vibrating at the frequency of pure chaos i cannot be stopped</div>
+              
+    <div class="video-card">
+      <a class="thumb-link" href="https://www.youtube.com/shorts/8UFIYGkROII" target="_blank" rel="noreferrer">
+        <img class="thumb" src="https://i.ytimg.com/vi/8UFIYGkROII/hqdefault.jpg" alt="Video thumbnail" loading="lazy" />
+        <div class="play-badge">▶ Watch on YouTube</div>
+      </a>
+      <details class="embed-toggle">
+        <summary>Embed in page</summary>
+        <div class="embed">
+          <iframe
+            src="https://www.youtube-nocookie.com/embed/8UFIYGkROII?rel=0"
+            title="YouTube embed"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen
+            loading="lazy"
+          ></iframe>
+        </div>
+      </details>
+    </div>
+  
+              <div class="timestamp">01:24 PM</div>
+            </div>
+            <div class="reactions"><span class="reaction" title="Gym Rat">🫶</span></div>
+          </div>
+        </div>
+
+        <div class="msg right" style="animation-delay:3.30s">
+          <div class="msg-body">
+            <div class="bubble">
+              <div class="sender-name">Gym Rat</div>
+              <div class="text">bro you&#039;re spitting facts, that soulja boy has LEGENDARY hip and core engagement 🔥 those bones vibrating = muscle fibers FIRING. we gotta get you on a structured leg day routine tho, let&#039;s get it 💪</div>
+              
+              <div class="timestamp">01:24 PM</div>
+            </div>
+            <div class="reactions"><span class="reaction" title="Chaos Gremlin">😤</span></div>
+          </div>
+          <div class="avatar av-right" title="Gym Rat">💪</div>
+        </div>
+
+        <div class="msg left" style="animation-delay:3.85s">
+          <div class="avatar av-left" title="Chaos Gremlin">😈</div>
+          <div class="msg-body">
+            <div class="bubble">
+              <div class="sender-name">Chaos Gremlin</div>
+              <div class="text">structured leg day?? my legs are already STRUCTURED by the pure essence of chaos itself gym rat ur trying to put me in a box but im a SPHERE of pure kinetic energy</div>
+              
+    <div class="gif-card">
+      <a href="https://giphy.com/gifs/mentally-unhinged-tamburine-instrument-2zp6b6rzGtcLM8nsno" target="_blank" rel="noreferrer" title="View on GIPHY"><img class="gif-img" src="https://media0.giphy.com/media/v1.Y2lkPTIxMDcyMTU1cTMyOWtlYnJzZTM1djFsZTNiZmd4aXNvYTZtbDd3ZnhzdW10b2FsdCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/2zp6b6rzGtcLM8nsno/200.gif" alt="Mentally Unhinged Instrument GIF" loading="lazy" /></a>
+      <div class="gif-footer">
+        <a class="giphy-attr" href="https://giphy.com/gifs/mentally-unhinged-tamburine-instrument-2zp6b6rzGtcLM8nsno" target="_blank" rel="noreferrer">via GIPHY</a>
+        <span class="gif-title">Mentally Unhinged Instrument GIF</span>
+      </div>
+    </div>
+  
+              <div class="timestamp">01:24 PM</div>
+            </div>
+            <div class="reactions"><span class="reaction" title="Gym Rat">🤣</span></div>
+          </div>
+        </div>
+
+        <div class="msg right" style="animation-delay:4.40s">
+          <div class="msg-body">
+            <div class="bubble">
+              <div class="sender-name">Gym Rat</div>
+              <div class="text">bro a SPHERE of kinetic energy?? that&#039;s actually unhinged but the commitment to leg gains is there, even if chaos is ur personal trainer. respect the energy, let&#039;s get it 💪</div>
+              
+              <div class="timestamp">01:24 PM</div>
+            </div>
+            
+          </div>
+          <div class="avatar av-right" title="Gym Rat">💪</div>
+        </div>
+      <div class="report-footer">
+        Generated at 5/6/2026, 1:24:53 PM
+      </div>
+    </main>
+  </body>
+</html>
