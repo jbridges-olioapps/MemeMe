@@ -4,17 +4,31 @@ import { useEffect, useMemo, useState } from "react";
 
 const PERSONAS = [
   { id: "random", name: "🎲 Random" },
-  { id: "hype-beast", name: "Hype Beast" },
-  { id: "chaos-gremlin", name: "Chaos Gremlin" },
-  { id: "film-snob", name: "Film Snob" },
-  { id: "vintage-hipster", name: "Vintage Hipster" },
-  { id: "gym-rat", name: "Gym Rat" },
-  { id: "corporate-girlie", name: "Corporate Girlie" },
-  { id: "conspiracy-theorist", name: "Conspiracy Theorist" },
-  { id: "theater-kid", name: "Theater Kid" },
-  { id: "boomer-dad", name: "Boomer Dad" },
-  { id: "overthinker", name: "Anxious Overthinker" },
+  { id: "hype-beast", name: "🔥 Hype Beast" },
+  { id: "chaos-gremlin", name: "😈 Chaos Gremlin" },
+  { id: "film-snob", name: "🎬 Film Snob" },
+  { id: "vintage-hipster", name: "🎸 Vintage Hipster" },
+  { id: "gym-rat", name: "💪 Gym Rat" },
+  { id: "corporate-girlie", name: "💼 Corporate Girlie" },
+  { id: "conspiracy-theorist", name: "🔭 Conspiracy Theorist" },
+  { id: "theater-kid", name: "🎭 Theater Kid" },
+  { id: "boomer-dad", name: "📻 Boomer Dad" },
+  { id: "overthinker", name: "😰 Anxious Overthinker" },
 ];
+
+const SEED_SHORT_URLS = [
+  // Keep in sync with the seed list used by the runner (`apps/mcp-server/src/shorts.ts`).
+  "https://www.youtube.com/shorts/fO0AwNEnN3I",
+  "https://www.youtube.com/shorts/mCRGP2D6x-s",
+  "https://www.youtube.com/shorts/UhpfNjijCds",
+  "https://www.youtube.com/shorts/wBVfUF3mhIM",
+  "https://www.youtube.com/shorts/F0wK4izLJ3M",
+  "https://www.youtube.com/shorts/ik5PYr1MjBY",
+  "https://www.youtube.com/shorts/LgkHkyY-bco",
+  "https://www.youtube.com/shorts/PAA4PvUCpHw",
+  "https://www.youtube.com/shorts/hprQ1h5c5go",
+  "https://www.youtube.com/shorts/dn30PLjSndM",
+] as const;
 
 const DEFAULT_WEIGHTS = { text: 20, emoji: 10, giphy: 25, video: 45 };
 
@@ -52,6 +66,14 @@ export default function Page() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RunResponse | null>(null);
+  const [reviewerModalOpen, setReviewerModalOpen] = useState(false);
+  const [seedPreview, setSeedPreview] = useState<{
+    url: string;
+    title?: string;
+    channel?: string;
+    thumbnailUrl?: string;
+  } | null>(null);
+  const [seedPreviewStatus, setSeedPreviewStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
 
   const totalWeight = weights.text + weights.emoji + weights.giphy + weights.video;
   const canSubmit = useMemo(
@@ -98,22 +120,121 @@ export default function Page() {
     }
   }
 
+  function fillRandomSeed() {
+    const pick = <T,>(arr: readonly T[]) => arr[Math.floor(Math.random() * arr.length)];
+    setShortUrl(pick(SEED_SHORT_URLS));
+  }
+
+  useEffect(() => {
+    if (!reviewerModalOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setReviewerModalOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [reviewerModalOpen]);
+
+  useEffect(() => {
+    const url = shortUrl.trim();
+    if (!url) {
+      setSeedPreview(null);
+      setSeedPreviewStatus("idle");
+      return;
+    }
+
+    const t = window.setTimeout(() => {
+      let watchUrl = url;
+      try {
+        const u = new URL(url);
+        if (u.pathname.startsWith("/shorts/")) {
+          const id = u.pathname.replace("/shorts/", "").split("/")[0];
+          if (id) watchUrl = `https://www.youtube.com/watch?v=${id}`;
+        }
+      } catch {
+        setSeedPreview(null);
+        setSeedPreviewStatus("error");
+        return;
+      }
+
+      const controller = new AbortController();
+      setSeedPreviewStatus("loading");
+      fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`, {
+        signal: controller.signal,
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error("oEmbed failed");
+          const j = (await res.json()) as { title?: string; author_name?: string; thumbnail_url?: string };
+          setSeedPreview({ url, title: j.title, channel: j.author_name, thumbnailUrl: j.thumbnail_url });
+          setSeedPreviewStatus("ready");
+        })
+        .catch(() => {
+          setSeedPreview({ url });
+          setSeedPreviewStatus("error");
+        });
+
+      return () => controller.abort();
+    }, 450);
+
+    return () => window.clearTimeout(t);
+  }, [shortUrl]);
+
   return (
     <main style={{ maxWidth: 680, margin: "0 auto", padding: "40px 16px 60px" }}>
       <header style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 11, opacity: 0.6, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
-          MemeMe
+        <div
+          style={{
+            fontSize: 32,
+            fontWeight: 800,
+            letterSpacing: -0.5,
+            margin: "0 0 8px",
+            background: "linear-gradient(135deg, rgba(236,72,153,.95) 0%, rgba(249,115,22,.92) 60%, rgba(255,255,255,.85) 100%)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+          }}
+        >
+          MemeMe™
         </div>
-        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700 }}>Run a demo</h1>
-        <p style={{ margin: "8px 0 0", fontSize: 14, opacity: 0.7, lineHeight: 1.5 }}>
-          Paste a YouTube Short, pick two personas, and watch them go.
-        </p>
+        <div style={{ fontSize: 14, opacity: 0.75, lineHeight: 1.55 }}>
+          <p style={{ margin: 0 }}>
+            Save <em>hours</em> of sending reels back and forth.
+          </p>
+          <p style={{ margin: "8px 0 0" }}>
+            Drop a Short, pick your vibe and a friend&apos;s, and let MemeMe do the replying.
+          </p>
+        </div>
       </header>
 
       <section style={cardStyle}>
         <form onSubmit={onSubmit} style={{ display: "grid", gap: 16 }}>
           <label style={{ display: "grid", gap: 6 }}>
             <div style={labelStyle}>YouTube Short URL</div>
+            <div style={{ display: "flex", gap: 10, alignItems: "baseline", justifyContent: "space-between" }}>
+              <a
+                href="https://www.youtube.com/shorts/"
+                target="_blank"
+                rel="noreferrer"
+                style={{ fontSize: 12, opacity: 0.75, textDecoration: "none", lineHeight: "20px" }}
+              >
+                Open YouTube Shorts →
+              </a>
+              <button
+                type="button"
+                onClick={fillRandomSeed}
+                style={{
+                  fontSize: 12,
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  border: "1px solid rgba(255,255,255,.16)",
+                  background: "rgba(255,255,255,.07)",
+                  color: "inherit",
+                  cursor: "pointer",
+                  lineHeight: "20px",
+                }}
+              >
+                Random seed
+              </button>
+            </div>
             <input
               value={shortUrl}
               onChange={(e) => setShortUrl(e.target.value)}
@@ -123,9 +244,71 @@ export default function Page() {
             />
           </label>
 
+          {(seedPreviewStatus === "loading" || seedPreview) && (
+            <div
+              style={{
+                marginTop: -6,
+                padding: "10px 12px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,.10)",
+                background: "rgba(0,0,0,.18)",
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                width: "100%",
+                maxWidth: "100%",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: 72,
+                  height: 40,
+                  borderRadius: 8,
+                  background: "rgba(255,255,255,.06)",
+                  border: "1px solid rgba(255,255,255,.10)",
+                  overflow: "hidden",
+                  flexShrink: 0,
+                }}
+              >
+                {seedPreview?.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={seedPreview.thumbnailUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                ) : null}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {seedPreviewStatus === "loading" ? "Fetching metadata…" : seedPreview?.title || "Video"}
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.65, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {seedPreviewStatus === "ready"
+                    ? seedPreview?.channel || ""
+                    : seedPreviewStatus === "error"
+                      ? "Metadata unavailable (still works)"
+                      : ""}
+                </div>
+              </div>
+              <a
+                href={shortUrl.trim()}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  marginLeft: "auto",
+                  fontSize: 12,
+                  opacity: 0.8,
+                  textDecoration: "none",
+                  flexShrink: 0,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Open →
+              </a>
+            </div>
+          )}
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <label style={{ display: "grid", gap: 6 }}>
-              <div style={labelStyle}>Agent A</div>
+              <div style={labelStyle}>Your vibe</div>
               <select value={personaA} onChange={(e) => setPersonaA(e.target.value)} style={inputStyle}>
                 {PERSONAS.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
@@ -133,7 +316,7 @@ export default function Page() {
               </select>
             </label>
             <label style={{ display: "grid", gap: 6 }}>
-              <div style={labelStyle}>Agent B</div>
+              <div style={labelStyle}>Your friend's vibe</div>
               <select value={personaB} onChange={(e) => setPersonaB(e.target.value)} style={inputStyle}>
                 {PERSONAS.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
@@ -209,12 +392,109 @@ export default function Page() {
         </form>
       </section>
 
+      <div style={{ marginTop: 14, textAlign: "center" }}>
+        <button
+          type="button"
+          onClick={() => setReviewerModalOpen(true)}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "inherit",
+            fontSize: 12,
+            opacity: 0.55,
+            cursor: "pointer",
+            textDecoration: "underline",
+            textUnderlineOffset: 3,
+          }}
+        >
+          Technical note for judges
+        </button>
+      </div>
+
+      {reviewerModalOpen && (
+        <div
+          role="presentation"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            background: "rgba(0,0,0,.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setReviewerModalOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reviewer-modal-title"
+            style={{
+              ...cardStyle,
+              maxWidth: 440,
+              width: "100%",
+              maxHeight: "85vh",
+              overflow: "auto",
+              padding: "20px 18px",
+              position: "relative",
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setReviewerModalOpen(false)}
+              aria-label="Close"
+              style={{
+                position: "absolute",
+                top: 12,
+                right: 12,
+                border: "none",
+                background: "rgba(255,255,255,.08)",
+                color: "inherit",
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                cursor: "pointer",
+                fontSize: 16,
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+            <div id="reviewer-modal-title" style={{ fontWeight: 700, fontSize: 15, marginBottom: 14, paddingRight: 36 }}>
+              How this demo works
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.6, opacity: 0.88 }}>
+              <p style={{ margin: "0 0 12px" }}>
+                This UI is a <strong>Next.js static export</strong> (plain HTML/JS/CSS) on GitHub Pages. When you run a demo,
+                your browser sends one POST to our <strong>Node/Express runner</strong>, which we usually expose to the web with a
+                tunnel (e.g. Cloudflare). The pages host does not execute your thread — that all happens on the runner.
+              </p>
+              <p style={{ margin: "0 0 12px" }}>
+                Message text and attachment choices are produced by <strong>Anthropic Claude</strong> on the runner when{" "}
+                <code style={{ fontSize: 12, opacity: 0.9 }}>ANTHROPIC_API_KEY</code> is set: the model sees persona prompts,
+                conversation history, and a curated Shorts list, and returns structured JSON for each turn. If the key is
+                missing, the runner uses a simple scripted fallback so the UI still works. Usage is subject to Anthropic&apos;s
+                terms and your billing.
+              </p>
+              <p style={{ margin: 0 }}>
+                Threads and HTML reports are stored <strong>locally</strong> on the machine running the runner. Optional GIFs may
+                call GIPHY; the small preview above the URL field uses <strong>YouTube oEmbed</strong> from your browser only.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {result?.ok && (
         <section style={{ ...cardStyle, marginTop: 14, borderColor: "rgba(16,185,129,.3)", background: "rgba(16,185,129,.07)" }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Done!</div>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Thread ready</div>
           {result.personas && (
             <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 10 }}>
-              {result.personas.A.name} vs {result.personas.B.name}
+              You (as {result.personas.A.name}) · {result.personas.B.name}
             </div>
           )}
           {result.seed?.title && (

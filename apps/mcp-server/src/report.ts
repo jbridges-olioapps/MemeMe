@@ -157,13 +157,29 @@ export async function generateThreadReport(args: {
 
   // Determine left/right from the order speakers appear in conversation.
   const speakers = Array.from(new Set(conversation.map((m) => m.from)));
+  // First speaker chronologically matches persona A ("Your vibe" in the judge UI).
+  const youSpeakerName = speakers[0];
   const sideFor = (from: string): "left" | "right" | "center" =>
     from === speakers[0] ? "left" : from === speakers[1] ? "right" : "center";
+
+  function speakerDisplayHtml(from: string): string {
+    if (!youSpeakerName || from !== youSpeakerName) return escapeHtml(from);
+    return `You (${escapeHtml(from)})`;
+  }
+
+  function reactionHoverTitle(from: string): string {
+    if (!youSpeakerName || from !== youSpeakerName) return from;
+    return `You (${from})`;
+  }
+
+  const headerSpeakersHtml =
+    speakers.length >= 2
+      ? `You (${escapeHtml(speakers[0])}) · ${escapeHtml(speakers[1])}`
+      : escapeHtml(speakers.join(" · "));
 
   const messagesHtml = conversation
     .map((m, i) => {
       const side = sideFor(m.from);
-      const displayName = escapeHtml(m.from);
       const emoji = personaEmoji(m.from);
       const delay = (i * 0.55).toFixed(2);
       const time = formatTime(m.createdAt);
@@ -179,11 +195,11 @@ export async function generateThreadReport(args: {
 
       const reactionsHtml = m.reactions.length
         ? `<div class="reactions">${m.reactions
-            .map((r) => `<span class="reaction" title="${escapeHtml(r.from)}">${escapeHtml(r.reaction)}</span>`)
+            .map((r) => `<span class="reaction" title="${escapeHtml(reactionHoverTitle(r.from))}">${escapeHtml(r.reaction)}</span>`)
             .join("")}</div>`
         : "";
 
-      const senderLabel = `<div class="sender-label">${emoji} ${displayName}</div>`;
+      const senderLabel = `<div class="sender-label">${emoji} ${speakerDisplayHtml(m.from)}</div>`;
 
       if (side === "center") {
         return `
@@ -274,7 +290,7 @@ export async function generateThreadReport(args: {
       font-weight: 800;
       letter-spacing: -0.5px;
       margin: 0 0 4px;
-      background: linear-gradient(135deg, #fff 40%, rgba(99,102,241,.85));
+      background: linear-gradient(135deg, rgba(236,72,153,.95) 0%, rgba(249,115,22,.92) 60%, rgba(255,255,255,.85) 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -418,12 +434,12 @@ export async function generateThreadReport(args: {
     .msg.center .reactions { left: 50%; transform: translateX(-50%); }
 
     .reaction {
-      font-size: 17px;
+      font-size: 22px;
       line-height: 1;
       background: rgba(30,30,45,.97);
       border: 1px solid rgba(255,255,255,.22);
       border-radius: 999px;
-      padding: 3px 7px;
+      padding: 4px 9px;
       box-shadow: 0 2px 10px rgba(0,0,0,.7);
       cursor: default;
     }
@@ -492,7 +508,7 @@ export async function generateThreadReport(args: {
     <header>
       <div class="header-brand">MemeMe™</div>
       <div class="header-meta">
-        ${escapeHtml(speakers.join(" vs "))}
+        ${headerSpeakersHtml}
         &nbsp;·&nbsp;
         ${conversation.length} messages
         &nbsp;·&nbsp;
