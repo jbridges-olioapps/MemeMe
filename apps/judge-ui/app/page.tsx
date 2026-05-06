@@ -44,6 +44,49 @@ type RunResponse =
     }
   | { ok: false; error: string };
 
+type StoredRun = {
+  runId: string;
+  reportUrl: string;
+  personasLabel?: string;
+  seedTitle?: string;
+  shortUrlSnippet?: string;
+  createdAtIso: string;
+};
+
+const HISTORY_VERSION = "v1";
+const MAX_STORED_RUNS = 25;
+
+function runHistoryStorageKey(runnerBase: string) {
+  return `mememe.runHistory.${HISTORY_VERSION}:${runnerBase}`;
+}
+
+function readStoredRuns(runnerBase: string): StoredRun[] {
+  if (typeof window === "undefined" || !runnerBase) return [];
+  try {
+    const raw = window.localStorage.getItem(runHistoryStorageKey(runnerBase));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as StoredRun[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredRuns(runnerBase: string, runs: StoredRun[]) {
+  if (typeof window === "undefined" || !runnerBase) return;
+  try {
+    window.localStorage.setItem(runHistoryStorageKey(runnerBase), JSON.stringify(runs));
+  } catch {
+    /* ignore quota / privacy mode */
+  }
+}
+
+function shortenUrl(u: string, max = 42) {
+  const t = u.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
 export default function Page() {
   const [runnerUrl, setRunnerUrl] = useState("");
   const [token, setToken] = useState("");
@@ -67,6 +110,7 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RunResponse | null>(null);
   const [reviewerModalOpen, setReviewerModalOpen] = useState(false);
+  const [runHistory, setRunHistory] = useState<StoredRun[]>([]);
   const [seedPreview, setSeedPreview] = useState<{
     url: string;
     title?: string;
@@ -74,6 +118,12 @@ export default function Page() {
     thumbnailUrl?: string;
   } | null>(null);
   const [seedPreviewStatus, setSeedPreviewStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+
+  const runnerBase = useMemo(() => runnerUrl.trim().replace(/\/+$/, ""), [runnerUrl]);
+
+  useEffect(() => {
+    setRunHistory(readStoredRuns(runnerBase));
+  }, [runnerBase]);
 
   const totalWeight = weights.text + weights.emoji + weights.giphy + weights.video;
   const canSubmit = useMemo(
@@ -113,6 +163,26 @@ export default function Page() {
       });
       const data = (await res.json()) as RunResponse;
       setResult(data);
+      if (data.ok) {
+        const base = runnerUrl.trim().replace(/\/+$/, "");
+        const personasLabel =
+          data.personas &&
+          `You (as ${data.personas.A.name}) · ${data.personas.B.name}`;
+        const entry: StoredRun = {
+          runId: data.runId,
+          reportUrl: data.reportUrl,
+          personasLabel: personasLabel ?? undefined,
+          seedTitle: data.seed?.title,
+          shortUrlSnippet: shortenUrl(shortUrl),
+          createdAtIso: new Date().toISOString(),
+        };
+        setRunHistory((prev) => {
+          const withoutDup = prev.filter((r) => r.runId !== entry.runId);
+          const next = [entry, ...withoutDup].slice(0, MAX_STORED_RUNS);
+          writeStoredRuns(base, next);
+          return next;
+        });
+      }
     } catch (err) {
       setResult({ ok: false, error: (err as Error).message || "Request failed" });
     } finally {
@@ -418,7 +488,7 @@ export default function Page() {
             position: "fixed",
             inset: 0,
             zIndex: 9999,
-            background: "rgba(0,0,0,.55)",
+            background: "#07070a",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -520,6 +590,100 @@ export default function Page() {
           <div style={{ fontSize: 13, opacity: 0.85, fontFamily: "monospace", wordBreak: "break-all" }}>{result.error}</div>
         </section>
       )}
+
+      <section
+        style={{
+          ...cardStyle,
+          marginTop: result?.ok || (result && !result.ok) ? 12 : 16,
+          padding: "12px 14px",
+          opacity: runHistory.length ? 0.95 : 0.65,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: runHistory.length ? 10 : 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13 }}>Past threads</div>
+          {runHistory.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                writeStoredRuns(runnerBase, []);
+                setRunHistory([]);
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "inherit",
+                fontSize: 11,
+                opacity: 0.5,
+                cursor: "pointer",
+                textDecoration: "underline",
+                textUnderlineOffset: 3,
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {runHistory.length === 0 ? (
+          <div style={{ fontSize: 12, opacity: 0.55, lineHeight: 1.45 }}>
+            Completed runs appear here — stored only in this browser for this runner URL.
+          </div>
+        ) : (
+          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+            {runHistory.map((r) => (
+              <li
+                key={r.runId}
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "flex-start",
+                  gap: "6px 10px",
+                  padding: "8px 10px",
+                  borderRadius: 12,
+                  background: "rgba(0,0,0,.2)",
+                  border: "1px solid rgba(255,255,255,.08)",
+                }}
+              >
+                <div style={{ flex: "1 1 180px", minWidth: 0 }}>
+                  <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 2 }}>
+                    {new Date(r.createdAtIso).toLocaleString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {r.seedTitle || r.shortUrlSnippet || r.runId}
+                  </div>
+                  {r.personasLabel ? (
+                    <div style={{ fontSize: 11, opacity: 0.62, marginTop: 3 }}>{r.personasLabel}</div>
+                  ) : null}
+                </div>
+                {runnerBase ? (
+                  <a
+                    href={`${runnerBase}${r.reportUrl}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      opacity: 0.85,
+                      textDecoration: "none",
+                      padding: "4px 0",
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                    }}
+                  >
+                    Open →
+                  </a>
+                ) : (
+                  <span style={{ fontSize: 11, opacity: 0.45 }}>Set runner URL</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </main>
   );
 }
