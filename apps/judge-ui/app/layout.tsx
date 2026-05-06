@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "MemeMe",
-  description: "Run a MemeMe demo from a single prompt.",
+  description: "Save hours of sending reels with your friends.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
