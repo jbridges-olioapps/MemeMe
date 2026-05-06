@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import cors from "cors";
 import { z } from "zod";
 import { ThreadStore, generateThreadReport, searchShorts, validateYouTubeShortUrl } from "@mememe/mcp-server";
+import { searchGifs, getGiphyRemainingCalls } from "@mememe/mcp-server";
 
 const PORT = Number(process.env.PORT ?? "8787");
 const RUNNER_TOKEN = process.env.RUNNER_TOKEN ?? "";
@@ -75,28 +76,82 @@ app.post("/run", async (req, res) => {
     });
 
     const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
-    const reactions = ["😂", "❤️", "🔥", "🤯", "👍"] as const;
+    const reactionPool = [
+      "😂", "😂", "😂",
+      "🔥", "🔥",
+      "💀", "💀",
+      "😭", "😭",
+      "🤣", "🤣",
+      "👍", "❤️", "🤯", "💯", "👀", "🙌", "😤", "😍", "🫶", "🫡",
+    ] as const;
+
+    function pickReactions(): string[] {
+      const first = pick([...reactionPool]);
+      if (Math.random() < 0.25) {
+        let second = pick([...reactionPool]);
+        while (second === first) second = pick([...reactionPool]);
+        return [first, second];
+      }
+      return [first];
+    }
+
+    const giphyKey = process.env.GIPHY_API_KEY ?? "";
+    const gifQueries = ["reaction", "lol", "omg", "fire", "this is fine", "mind blown", "no way", "same", "vibe"];
+    const videoTextsA = [
+      "Ok this one reminded me of your whole personality",
+      "bro you NEED to see this",
+      "this was literally made for you",
+      "why does this feel like us",
+    ];
+    const videoTextsB = [
+      "ok I FELT that. counter-pick:",
+      "lmaooo ok but have you seen this one",
+      "same energy honestly",
+      "ok ok ok but THIS though",
+    ];
+    const gifTextsA = [
+      "me watching your last video",
+      "this is my reaction rn",
+      "no words needed",
+      "literally me every time",
+    ];
+    const gifTextsB = [
+      "responding in gif form because words aren't enough",
+      "this is how I feel about what you just sent",
+      "^^ that's all I have to say",
+      "okay but this is my actual face rn",
+    ];
 
     let lastMessageId = seedMessageId;
     const maxTurns = input.turns ?? 8;
     for (let i = 0; i < maxTurns; i++) {
       const from = i % 2 === 0 ? "AgentA" : "AgentB";
-      const other = from === "AgentA" ? "AgentB" : "AgentA";
 
-      await store.react({
-        threadId,
-        messageId: lastMessageId,
-        from,
-        reaction: pick([...reactions]),
-      });
+      for (const reaction of pickReactions()) {
+        await store.react({
+          threadId,
+          messageId: lastMessageId,
+          from,
+          reaction: reaction as Parameters<typeof store.react>[0]["reaction"],
+        });
+      }
 
-      const candidates = searchShorts({ limit: 25 });
-      const chosen = pick(candidates);
+      const useGif = giphyKey && getGiphyRemainingCalls(giphyKey) > 0 && Math.random() < 0.35;
+      if (useGif) {
+        try {
+          const { results } = await searchGifs({ query: pick(gifQueries), apiKey: giphyKey, limit: 10 });
+          if (results.length > 0) {
+            const gif = pick(results);
+            const text = pick(from === "AgentA" ? gifTextsA : gifTextsB);
+            const res = await store.postMessage({ threadId, from, text, attachments: [gif] });
+            lastMessageId = res.messageId;
+            continue;
+          }
+        } catch { /* fall through */ }
+      }
 
-      const text =
-        from === "AgentA"
-          ? `Ok ${other}, this one reminded me of your vibe. What do you think?`
-          : `Haha yes. This is my counter-pick — same energy.`;
+      const chosen = pick(searchShorts({ limit: 25 }));
+      const text = pick(from === "AgentA" ? videoTextsA : videoTextsB);
 
       const { messageId } = await store.postMessage({
         threadId,

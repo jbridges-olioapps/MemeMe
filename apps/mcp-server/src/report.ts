@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Thread } from "./types.js";
+import type { Thread, GifAttachment } from "./types.js";
 
 function escapeHtml(s: string) {
   return s
@@ -11,27 +11,74 @@ function escapeHtml(s: string) {
     .replaceAll("'", "&#039;");
 }
 
-function youtubeEmbedUrl(url: string): string | null {
+function youtubeVideoId(url: string): string | null {
   try {
     const u = new URL(url);
     const host = u.hostname.replace(/^www\./, "");
     if (host === "youtu.be") {
-      const id = u.pathname.split("/").filter(Boolean)[0];
-      return id ? `https://www.youtube.com/embed/${id}` : null;
+      return u.pathname.split("/").filter(Boolean)[0] ?? null;
     }
     if (host !== "youtube.com" && host !== "m.youtube.com") return null;
     if (u.pathname.startsWith("/shorts/")) {
-      const id = u.pathname.replace("/shorts/", "").split("/")[0];
-      return id ? `https://www.youtube.com/embed/${id}` : null;
+      return u.pathname.replace("/shorts/", "").split("/")[0] ?? null;
     }
     if (u.pathname === "/watch") {
-      const id = u.searchParams.get("v");
-      return id ? `https://www.youtube.com/embed/${id}` : null;
+      return u.searchParams.get("v");
     }
     return null;
   } catch {
     return null;
   }
+}
+
+function youtubeVideoCard(originalUrl: string): string | null {
+  const id = youtubeVideoId(originalUrl);
+  if (!id) return null;
+  const thumb = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+  const watchUrl = escapeHtml(originalUrl);
+  const embedUrl = escapeHtml(`https://www.youtube-nocookie.com/embed/${id}?rel=0`);
+  const thumbEsc = escapeHtml(thumb);
+  // Thumbnail card that links to YouTube; expander optionally loads iframe.
+  // Using youtube-nocookie.com and a lazy <details> to avoid Error 153 on
+  // videos with embedding restrictions — the thumbnail always works.
+  return `
+    <div class="video-card">
+      <a class="thumb-link" href="${watchUrl}" target="_blank" rel="noreferrer">
+        <img class="thumb" src="${thumbEsc}" alt="Video thumbnail" loading="lazy" />
+        <div class="play-badge">▶ Watch on YouTube</div>
+      </a>
+      <details class="embed-toggle">
+        <summary>Embed in page</summary>
+        <div class="embed">
+          <iframe
+            src="${embedUrl}"
+            title="YouTube embed"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen
+            loading="lazy"
+          ></iframe>
+        </div>
+      </details>
+    </div>
+  `;
+}
+
+function gifCard(gif: GifAttachment): string {
+  const gifUrl = escapeHtml(gif.url);
+  const previewUrl = escapeHtml(gif.previewUrl ?? gif.url);
+  const sourceUrl = gif.sourceUrl ? escapeHtml(gif.sourceUrl) : null;
+  const title = escapeHtml(gif.title ?? "GIF");
+  const img = `<img class="gif-img" src="${gifUrl}" alt="${title}" loading="lazy" />`;
+  return `
+    <div class="gif-card">
+      ${sourceUrl ? `<a href="${sourceUrl}" target="_blank" rel="noreferrer" title="View on GIPHY">${img}</a>` : img}
+      <div class="gif-footer">
+        ${sourceUrl ? `<a class="giphy-attr" href="${sourceUrl}" target="_blank" rel="noreferrer">via GIPHY</a>` : "GIF"}
+        ${gif.title ? `<span class="gif-title">${title}</span>` : ""}
+      </div>
+    </div>
+  `;
 }
 
 export async function generateThreadReport(args: {
@@ -44,22 +91,12 @@ export async function generateThreadReport(args: {
   const messagesHtml = args.thread.messages
     .map((m) => {
       const embeds = m.attachments
-        .filter((a) => a.type === "video")
-        .map((a) => youtubeEmbedUrl(a.url))
+        .map((a) => {
+          if (a.type === "video") return youtubeVideoCard(a.url);
+          if (a.type === "gif") return gifCard(a);
+          return null;
+        })
         .filter((x): x is string => Boolean(x))
-        .map(
-          (embed) => `
-            <div class="embed">
-              <iframe
-                src="${escapeHtml(embed)}"
-                title="YouTube embed"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                referrerpolicy="strict-origin-when-cross-origin"
-                allowfullscreen
-              ></iframe>
-            </div>
-          `,
-        )
         .join("\n");
 
       const reactions = m.reactions.length
@@ -109,8 +146,20 @@ export async function generateThreadReport(args: {
       .from { font-weight: 600; }
       .time { opacity: .8; }
       .text { white-space: pre-wrap; line-height: 1.3; }
-      .embed { margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); }
+      .video-card { margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.25); }
+      .thumb-link { display: block; position: relative; text-decoration: none; }
+      .thumb { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }
+      .play-badge { position: absolute; bottom: 0; left: 0; right: 0; padding: 8px 10px; background: linear-gradient(transparent, rgba(0,0,0,.75)); color: #fff; font-size: 13px; font-weight: 600; }
+      .embed-toggle { padding: 8px 10px; font-size: 12px; opacity: .85; }
+      .embed-toggle summary { cursor: pointer; user-select: none; }
+      .embed { border-top: 1px solid rgba(255,255,255,.08); }
       iframe { width: 100%; aspect-ratio: 9/16; border: 0; background: #000; }
+      .gif-card { margin-top: 10px; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); background: rgba(0,0,0,.20); display: inline-flex; flex-direction: column; max-width: 320px; }
+      .gif-img { display: block; width: 100%; max-width: 320px; height: auto; }
+      .gif-footer { padding: 5px 8px; display: flex; gap: 8px; align-items: center; font-size: 11px; opacity: .8; }
+      .giphy-attr { color: inherit; text-decoration: none; font-weight: 600; }
+      .giphy-attr:hover { text-decoration: underline; }
+      .gif-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .75; }
       .reactions { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
       .reaction { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.10); border-radius: 999px; padding: 2px 8px; font-size: 12px; }
       footer { margin-top: 22px; font-size: 12px; opacity: .75; }

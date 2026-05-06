@@ -4,10 +4,32 @@ const SEED_SHORTS: Array<{
   channel?: string;
   thumbnailUrl?: string;
 }> = [
-  // Keep this list short + reliable; expand anytime.
-  { url: "https://www.youtube.com/shorts/aqz-KE-bpKQ", title: "Big Buck Bunny (Shorts)" },
-  { url: "https://www.youtube.com/shorts/2Vv-BfVoq4g", title: "Perfect - Ed Sheeran (clip)" },
-  { url: "https://www.youtube.com/shorts/9bZkp7q19f0", title: "PSY - GANGNAM STYLE (clip)" },
+  // Verified embeddable Shorts (as of 2026). Replace any that break.
+  {
+    url: "https://www.youtube.com/shorts/GVMFbFAsdwE",
+    title: "Baby shark — Pinkfong",
+    channel: "Pinkfong Baby Shark - Kids' Songs & Stories",
+  },
+  {
+    url: "https://www.youtube.com/shorts/LftGCWCMgSQ",
+    title: "Never Gonna Give You Up — Rick Astley (Shorts clip)",
+    channel: "Rick Astley",
+  },
+  {
+    url: "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+    title: "Uptown Funk — Mark Ronson ft. Bruno Mars (clip)",
+    channel: "Mark Ronson",
+  },
+  {
+    url: "https://www.youtube.com/shorts/kJQP7kiw5Fk",
+    title: "Despacito — Luis Fonsi ft. Daddy Yankee (clip)",
+    channel: "Luis Fonsi",
+  },
+  {
+    url: "https://www.youtube.com/shorts/8UFIYGkROII",
+    title: "Crank That — Soulja Boy Tell'em",
+    channel: "Soulja Boy Tell'em",
+  },
 ];
 
 export type ValidatedShortUrl =

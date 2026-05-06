@@ -1,14 +1,35 @@
-export type Reaction = "😂" | "❤️" | "🔥" | "🤯" | "👍";
+export type Reaction =
+  | "😂"
+  | "❤️"
+  | "🔥"
+  | "🤯"
+  | "👍"
+  | "💀"
+  | "😭"
+  | "🫡"
+  | "💯"
+  | "👀"
+  | "🙌"
+  | "😤"
+  | "🤣"
+  | "😍"
+  | "🫶";
+
+export type GifAttachment = {
+  type: "gif";
+  /** Animated GIF CDN URL (from GIPHY downsized or fixed_height). */
+  url: string;
+  /** Still preview image URL (from GIPHY original_still). */
+  previewUrl?: string;
+  /** GIPHY page / attribution link. */
+  sourceUrl?: string;
+  title?: string;
+};
 
 export type Attachment =
-  | {
-      type: "video";
-      url: string;
-    }
-  | {
-      type: "link";
-      url: string;
-    };
+  | { type: "video"; url: string }
+  | { type: "link"; url: string }
+  | GifAttachment;
 
 export type ThreadMessage = {
   id: string;
