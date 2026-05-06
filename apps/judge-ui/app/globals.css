@@ -30,3 +30,100 @@ a {
   color: inherit;
 }
 
+/* Ambient floating emojis (judge UI) — behind cards, minimal motion-friendly */
+.meme-emoji-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.page-content-shell {
+  position: relative;
+  z-index: 2;
+}
+
+.meme-emoji-float {
+  position: absolute;
+  line-height: 1;
+  user-select: none;
+  opacity: 0.32;
+  font-size: clamp(5rem, min(32vw, 10rem), 10rem);
+  text-shadow:
+    0 0 36px rgba(99, 102, 241, 0.52),
+    0 0 64px rgba(16, 185, 129, 0.22);
+  will-change: transform;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+}
+
+/* Upper-right — reads clearly against darker corner */
+.meme-emoji-float--1 {
+  top: 8%;
+  right: max(-4%, -1.25rem);
+  left: auto;
+  animation-name: memeEmojiDrift1;
+  animation-duration: 28s;
+  animation-delay: -3s;
+  opacity: 0.36;
+}
+
+/* Mid-left — not tucked off-screen */
+.meme-emoji-float--2 {
+  top: 42%;
+  left: max(-2%, -0.5rem);
+  right: auto;
+  animation-name: memeEmojiDrift2;
+  animation-duration: 34s;
+  animation-delay: -12s;
+  opacity: 0.3;
+}
+
+/* Lower-center / right-ish */
+.meme-emoji-float--3 {
+  bottom: 10%;
+  left: min(72%, calc(100% - 5rem));
+  right: auto;
+  animation-name: memeEmojiDrift3;
+  animation-duration: 24s;
+  animation-delay: -1s;
+  opacity: 0.34;
+}
+
+@keyframes memeEmojiDrift1 {
+  0% {
+    transform: translate(0, 0) rotate(-5deg);
+  }
+  100% {
+    transform: translate(min(-52px, -6vw), min(48px, 7vh)) rotate(8deg);
+  }
+}
+
+@keyframes memeEmojiDrift2 {
+  0% {
+    transform: translate(0, 0) rotate(6deg);
+  }
+  100% {
+    transform: translate(min(56px, 8vw), min(-36px, -5vh)) rotate(-10deg);
+  }
+}
+
+@keyframes memeEmojiDrift3 {
+  0% {
+    transform: translate(0, 0) rotate(4deg);
+  }
+  100% {
+    transform: translate(min(-44px, -5vw), min(-52px, -8vh)) rotate(-9deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meme-emoji-float {
+    animation: none !important;
+    opacity: 0.22;
+    transform: none;
+  }
+}
+

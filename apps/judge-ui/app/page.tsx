@@ -249,7 +249,13 @@ export default function Page() {
   }, [shortUrl]);
 
   return (
-    <main style={{ maxWidth: 680, margin: "0 auto", padding: "40px 16px 60px" }}>
+    <main style={{ position: "relative", maxWidth: 680, margin: "0 auto", padding: "40px 16px 60px" }}>
+      <div className="meme-emoji-backdrop" aria-hidden="true">
+        <span className="meme-emoji-float meme-emoji-float--1">🔥</span>
+        <span className="meme-emoji-float meme-emoji-float--2">😈</span>
+        <span className="meme-emoji-float meme-emoji-float--3">🎬</span>
+      </div>
+      <div className="page-content-shell">
       <header style={{ marginBottom: 28 }}>
         <div
           style={{
@@ -684,6 +690,7 @@ export default function Page() {
           </ul>
         )}
       </section>
+      </div>
     </main>
   );
 }
