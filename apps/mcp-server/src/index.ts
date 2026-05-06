@@ -189,12 +189,12 @@ server.tool(
     const chosenB = (personaB ? getPersonaById(personaB) : null) ?? defaultB;
 
     const maxTurns = turns ?? 8;
-    const participants = ["Judge", chosenA.name, chosenB.name];
+    const participants = [chosenA.name, chosenB.name];
     const { threadId } = await store.createThread(participants);
 
     const { messageId: seedMessageId } = await store.postMessage({
       threadId,
-      from: "Judge",
+      from: "Seed",
       text: judgeMessage,
       attachments: [{ type: "video", url: validated.normalizedUrl }],
     });

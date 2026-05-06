@@ -16,12 +16,17 @@ const PERSONAS = [
   { id: "overthinker", name: "Anxious Overthinker" },
 ];
 
+const DEFAULT_WEIGHTS = { text: 20, emoji: 10, giphy: 25, video: 45 };
+
+type Weights = typeof DEFAULT_WEIGHTS;
+
 type RunResponse =
   | {
       ok: true;
       runId: string;
       reportUrl: string;
       personas?: { A: { name: string }; B: { name: string } };
+      seed?: { url: string; title?: string; channel?: string };
     }
   | { ok: false; error: string };
 
@@ -30,7 +35,12 @@ export default function Page() {
   const [token, setToken] = useState("");
 
   useEffect(() => {
-    setRunnerUrl((prev) => prev || process.env.NEXT_PUBLIC_RUNNER_URL || "");
+    const envUrl = process.env.NEXT_PUBLIC_RUNNER_URL || "";
+    const isLocalhost =
+      typeof window !== "undefined" &&
+      /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
+    const fallbackUrl = isLocalhost ? "http://localhost:8788" : "";
+    setRunnerUrl((prev) => prev || envUrl || fallbackUrl);
     setToken((prev) => prev || process.env.NEXT_PUBLIC_RUNNER_TOKEN || "");
   }, []);
 
@@ -38,20 +48,36 @@ export default function Page() {
   const [personaA, setPersonaA] = useState("random");
   const [personaB, setPersonaB] = useState("random");
   const [turns, setTurns] = useState(8);
+  const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RunResponse | null>(null);
 
+  const totalWeight = weights.text + weights.emoji + weights.giphy + weights.video;
   const canSubmit = useMemo(
-    () => runnerUrl.trim().length > 0 && shortUrl.trim().length > 0,
-    [runnerUrl, shortUrl],
+    () => runnerUrl.trim().length > 0 && shortUrl.trim().length > 0 && totalWeight > 0,
+    [runnerUrl, shortUrl, totalWeight],
   );
+
+  function setW(key: keyof Weights, value: number) {
+    setWeights((prev) => ({ ...prev, [key]: value }));
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setResult(null);
     try {
-      const body: Record<string, unknown> = { shortUrl, turns };
+      const body: Record<string, unknown> = {
+        shortUrl,
+        turns,
+        weights: {
+          text: weights.text / 100,
+          emoji: weights.emoji / 100,
+          giphy: weights.giphy / 100,
+          video: weights.video / 100,
+        },
+      };
       if (personaA !== "random") body.personaA = personaA;
       if (personaB !== "random") body.personaB = personaB;
 
@@ -73,7 +99,7 @@ export default function Page() {
   }
 
   return (
-    <main style={{ maxWidth: 640, margin: "0 auto", padding: "40px 16px 60px" }}>
+    <main style={{ maxWidth: 680, margin: "0 auto", padding: "40px 16px 60px" }}>
       <header style={{ marginBottom: 28 }}>
         <div style={{ fontSize: 11, opacity: 0.6, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
           MemeMe
@@ -86,7 +112,6 @@ export default function Page() {
 
       <section style={cardStyle}>
         <form onSubmit={onSubmit} style={{ display: "grid", gap: 16 }}>
-
           <label style={{ display: "grid", gap: 6 }}>
             <div style={labelStyle}>YouTube Short URL</div>
             <input
@@ -136,10 +161,51 @@ export default function Page() {
             </div>
           </label>
 
+          <details
+            open={showAdvanced}
+            onToggle={(e) => setShowAdvanced((e.target as HTMLDetailsElement).open)}
+            style={{ marginTop: 4 }}
+          >
+            <summary style={{ ...labelStyle, cursor: "pointer", userSelect: "none" }}>
+              Response mix
+            </summary>
+            <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+              <p style={{ margin: 0, fontSize: 12, opacity: 0.7, lineHeight: 1.5 }}>
+                How often each reply type shows up. The runner picks a type per turn weighted by these.
+              </p>
+              <WeightSlider label="Text" hint="words only" value={weights.text} onChange={(v) => setW("text", v)} />
+              <WeightSlider label="Emoji" hint="emoji-only reply" value={weights.emoji} onChange={(v) => setW("emoji", v)} />
+              <WeightSlider label="GIF" hint="GIPHY reaction" value={weights.giphy} onChange={(v) => setW("giphy", v)} />
+              <WeightSlider label="Video" hint="share a Short" value={weights.video} onChange={(v) => setW("video", v)} />
+              <div style={{ fontSize: 11, opacity: 0.6, display: "flex", justifyContent: "space-between" }}>
+                <span>Total: {totalWeight}</span>
+                <button
+                  type="button"
+                  onClick={() => setWeights(DEFAULT_WEIGHTS)}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid rgba(255,255,255,.16)",
+                    color: "inherit",
+                    fontSize: 11,
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                  }}
+                >
+                  reset
+                </button>
+              </div>
+              {totalWeight === 0 && (
+                <div style={{ fontSize: 12, color: "rgba(239,68,68,.95)" }}>
+                  Set at least one weight above 0.
+                </div>
+              )}
+            </div>
+          </details>
+
           <button type="submit" disabled={!canSubmit || loading} style={buttonStyle(!canSubmit || loading)}>
             {loading ? "Running…" : "▶ Run demo"}
           </button>
-
         </form>
       </section>
 
@@ -149,6 +215,12 @@ export default function Page() {
           {result.personas && (
             <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 10 }}>
               {result.personas.A.name} vs {result.personas.B.name}
+            </div>
+          )}
+          {result.seed?.title && (
+            <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 10 }}>
+              Starting Short: <strong>{result.seed.title}</strong>
+              {result.seed.channel ? ` — ${result.seed.channel}` : ""}
             </div>
           )}
           <a
@@ -169,6 +241,34 @@ export default function Page() {
         </section>
       )}
     </main>
+  );
+}
+
+function WeightSlider(props: {
+  label: string;
+  hint: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <label style={{ display: "grid", gap: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, alignItems: "baseline" }}>
+        <span>
+          <strong>{props.label}</strong>
+          <span style={{ opacity: 0.55, marginLeft: 6 }}>· {props.hint}</span>
+        </span>
+        <span style={{ opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>{props.value}</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={props.value}
+        onChange={(e) => props.onChange(Number(e.target.value))}
+        style={{ width: "100%", accentColor: "rgba(99,102,241,1)" }}
+      />
+    </label>
   );
 }
 

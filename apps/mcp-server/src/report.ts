@@ -2,6 +2,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Thread, GifAttachment } from "./types.js";
 
+export type ReportSeed = {
+  url: string;
+  title?: string;
+  channel?: string;
+};
+
 function escapeHtml(s: string) {
   return s
     .replaceAll("&", "&amp;")
@@ -38,9 +44,6 @@ function youtubeVideoCard(originalUrl: string): string | null {
   const watchUrl = escapeHtml(originalUrl);
   const embedUrl = escapeHtml(`https://www.youtube-nocookie.com/embed/${id}?rel=0`);
   const thumbEsc = escapeHtml(thumb);
-  // Thumbnail card that links to YouTube; expander optionally loads iframe.
-  // Using youtube-nocookie.com and a lazy <details> to avoid Error 153 on
-  // videos with embedding restrictions — the thumbnail always works.
   return `
     <div class="video-card">
       <a class="thumb-link" href="${watchUrl}" target="_blank" rel="noreferrer">
@@ -66,7 +69,6 @@ function youtubeVideoCard(originalUrl: string): string | null {
 
 function gifCard(gif: GifAttachment): string {
   const gifUrl = escapeHtml(gif.url);
-  const previewUrl = escapeHtml(gif.previewUrl ?? gif.url);
   const sourceUrl = gif.sourceUrl ? escapeHtml(gif.sourceUrl) : null;
   const title = escapeHtml(gif.title ?? "GIF");
   const img = `<img class="gif-img" src="${gifUrl}" alt="${title}" loading="lazy" />`;
@@ -81,14 +83,62 @@ function gifCard(gif: GifAttachment): string {
   `;
 }
 
+function seedPanel(seed: ReportSeed | undefined, seedMessageText: string): string {
+  if (!seed) return "";
+  const card = youtubeVideoCard(seed.url);
+  const title = seed.title ? `<div class="seed-title">${escapeHtml(seed.title)}</div>` : "";
+  const channel = seed.channel
+    ? `<div class="seed-channel">${escapeHtml(seed.channel)}</div>`
+    : "";
+  const note = seedMessageText
+    ? `<div class="seed-note">${escapeHtml(seedMessageText)}</div>`
+    : "";
+  return `
+    <section class="seed-panel">
+      <div class="seed-eyebrow">▶ Starting Short</div>
+      <div class="seed-body">
+        <div class="seed-meta">
+          ${title}
+          ${channel}
+          ${note}
+        </div>
+        ${card ?? ""}
+      </div>
+    </section>
+  `;
+}
+
 export async function generateThreadReport(args: {
   outDir: string;
   thread: Thread;
+  seed?: ReportSeed;
 }): Promise<{ reportDir: string; indexPath: string }> {
   const reportDir = join(args.outDir, args.thread.id);
   await mkdir(reportDir, { recursive: true });
 
-  const messagesHtml = args.thread.messages
+  // The "Seed" message holds the starting prompt + initial video. Pull it out
+  // of the message stream so it renders as a distinct intro panel instead of a chat bubble.
+  const messages = args.thread.messages;
+  const seedIndex = messages.findIndex((m) => m.from === "Seed");
+  const seedMessage = seedIndex >= 0 ? messages[seedIndex] : null;
+  const conversation = seedIndex >= 0 ? messages.slice(seedIndex + 1) : messages;
+
+  // If the runner didn't pass seed metadata explicitly but we have the seed message,
+  // synthesize a minimal ReportSeed from the attachment URL.
+  const seedFromMessage: ReportSeed | undefined = (() => {
+    if (!seedMessage) return undefined;
+    const att = seedMessage.attachments.find((a) => a.type === "video");
+    if (!att || att.type !== "video") return undefined;
+    return { url: att.url };
+  })();
+  const seed = args.seed ?? seedFromMessage;
+  const seedText = seedMessage?.text ?? "";
+
+  // Sides: alternate left/right for the two non-Seed participants.
+  const speakers = Array.from(new Set(conversation.map((m) => m.from)));
+  const sideFor = (from: string): "left" | "right" => (from === speakers[0] ? "left" : "right");
+
+  const messagesHtml = conversation
     .map((m) => {
       const embeds = m.attachments
         .map((a) => {
@@ -105,7 +155,7 @@ export async function generateThreadReport(args: {
             .join(" ")}</div>`
         : "";
 
-      const side = m.from === "AgentA" ? "left" : m.from === "AgentB" ? "right" : "center";
+      const side = sideFor(m.from);
       return `
         <div class="msg ${side}">
           <div class="meta">
@@ -135,13 +185,26 @@ export async function generateThreadReport(args: {
       h1 { font-size: 16px; margin: 0 0 6px; font-weight: 600; }
       .sub { font-size: 12px; opacity: .85; }
       main { max-width: 920px; margin: 0 auto; padding: 18px 14px 40px; }
+
+      .seed-panel { margin: 6px 0 22px; padding: 16px 16px 18px; border-radius: 16px;
+        background: linear-gradient(180deg, rgba(99,102,241,.18) 0%, rgba(99,102,241,.06) 100%);
+        border: 1px solid rgba(99,102,241,.32);
+      }
+      .seed-eyebrow { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+        opacity: .85; font-weight: 700; margin-bottom: 10px; color: #b4b8ff; }
+      .seed-body { display: grid; gap: 14px; grid-template-columns: 1fr; }
+      @media (min-width: 640px) { .seed-body { grid-template-columns: 1.1fr .9fr; align-items: start; } }
+      .seed-title { font-size: 17px; font-weight: 700; line-height: 1.3; margin-bottom: 4px; }
+      .seed-channel { font-size: 13px; opacity: .8; margin-bottom: 8px; }
+      .seed-note { margin-top: 8px; font-size: 13px; line-height: 1.45; opacity: .9;
+        padding: 8px 10px; border-left: 2px solid rgba(255,255,255,.18); background: rgba(255,255,255,.04);
+        border-radius: 0 6px 6px 0; white-space: pre-wrap; }
+
       .msg { display: flex; margin: 14px 0; }
       .msg.left { justify-content: flex-start; }
       .msg.right { justify-content: flex-end; }
-      .msg.center { justify-content: center; }
       .bubble { max-width: 640px; width: 100%; padding: 12px 12px 10px; border-radius: 14px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08); }
       .msg.right .bubble { background: rgba(99,102,241,.14); border-color: rgba(99,102,241,.25); }
-      .msg.center .bubble { background: rgba(16,185,129,.10); border-color: rgba(16,185,129,.18); }
       .meta { display: flex; gap: 10px; font-size: 12px; opacity: .85; margin-bottom: 8px; align-items: baseline; }
       .from { font-weight: 600; }
       .time { opacity: .8; }
@@ -170,10 +233,11 @@ export async function generateThreadReport(args: {
     <header>
       <h1>MemeMe — Conversation Report</h1>
       <div class="sub">
-        Thread: <code>${escapeHtml(args.thread.id)}</code> · Participants: ${escapeHtml(args.thread.participants.join(", "))} · Messages: ${args.thread.messages.length}
+        Thread: <code>${escapeHtml(args.thread.id)}</code> · Participants: ${escapeHtml(speakers.join(", "))} · Messages: ${conversation.length}
       </div>
     </header>
     <main>
+      ${seedPanel(seed, seedText)}
       ${messagesHtml || "<p>No messages yet.</p>"}
       <footer>
         Generated at ${escapeHtml(new Date().toLocaleString())}.
@@ -186,4 +250,3 @@ export async function generateThreadReport(args: {
   await writeFile(indexPath, html, "utf8");
   return { reportDir, indexPath };
 }
-

@@ -1,0 +1,32 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: MemeMe
+        - heading "Judge UI (GitHub Pages)" [level=1] [ref=e6]
+      - generic [ref=e7]: Static frontend · Runner does the work
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]: Runner URL
+        - textbox "Runner URL" [ref=e12]:
+          - /placeholder: https://<your-tunnel-domain>
+          - text: http://localhost:8788
+      - generic [ref=e13]:
+        - generic [ref=e14]: X-Runner-Token (optional)
+        - 'textbox "X-Runner-Token (optional) Note: any token embedded in a static site is visible to users. For hackathon demos this is usually fine." [ref=e15]':
+          - /placeholder: shared secret
+          - text: dev-secret
+        - generic [ref=e16]: "Note: any token embedded in a static site is visible to users. For hackathon demos this is usually fine."
+      - generic [ref=e17]:
+        - generic [ref=e18]: YouTube Short URL
+        - textbox "YouTube Short URL" [ref=e19]:
+          - /placeholder: https://www.youtube.com/shorts/...
+      - generic [ref=e20]:
+        - generic [ref=e21]: Judge prompt
+        - textbox "Judge prompt" [ref=e22]: Send something funny and then respond like two friends DMing.
+      - generic [ref=e23]:
+        - generic [ref=e24]: Turns
+        - spinbutton "Turns" [ref=e25]: "8"
+      - button "Run demo" [disabled] [ref=e26]
+    - generic [ref=e27]: If you’re using GitHub Project Pages, this UI is exported under a repo base path. The runner must allow CORS for your Pages origin.
+  - alert [ref=e28]

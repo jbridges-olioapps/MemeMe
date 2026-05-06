@@ -1,12 +1,35 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Thread } from "./types.js";
 
+export type ResponseKind = "text" | "emoji" | "giphy" | "video";
+
+export type ResponseWeights = {
+  text: number;
+  emoji: number;
+  giphy: number;
+  video: number;
+};
+
+export const DEFAULT_WEIGHTS: ResponseWeights = {
+  text: 0.20,
+  emoji: 0.10,
+  giphy: 0.25,
+  video: 0.45,
+};
+
+export type SeedVideoContext = {
+  url: string;
+  title?: string;
+  channel?: string;
+};
+
 export type AgentTurnResult = {
   text: string;
   attachment:
     | { type: "video"; url: string }
     | { type: "gif"; searchQuery: string }
     | null;
+  kind: ResponseKind;
 };
 
 export type Persona = {
@@ -107,6 +130,23 @@ export function getPersonaById(id: string): Persona | undefined {
   return PERSONAS.find((p) => p.id === id);
 }
 
+export function pickResponseKind(weights: ResponseWeights, gifEnabled: boolean): ResponseKind {
+  // Drop giphy weight if disabled
+  const w: ResponseWeights = {
+    text: Math.max(0, weights.text),
+    emoji: Math.max(0, weights.emoji),
+    giphy: gifEnabled ? Math.max(0, weights.giphy) : 0,
+    video: Math.max(0, weights.video),
+  };
+  const total = w.text + w.emoji + w.giphy + w.video;
+  if (total <= 0) return "video";
+  let r = Math.random() * total;
+  if ((r -= w.text) < 0) return "text";
+  if ((r -= w.emoji) < 0) return "emoji";
+  if ((r -= w.giphy) < 0) return "giphy";
+  return "video";
+}
+
 function buildConversationHistory(thread: Thread): string {
   if (thread.messages.length === 0) return "(no messages yet)";
   return thread.messages
@@ -123,48 +163,59 @@ function buildConversationHistory(thread: Thread): string {
     .join("\n");
 }
 
+function buildSeedContext(seed?: SeedVideoContext): string {
+  if (!seed) return "";
+  const lines = ["The conversation started from this video:"];
+  if (seed.title) lines.push(`  Title: ${seed.title}`);
+  if (seed.channel) lines.push(`  Channel: ${seed.channel}`);
+  lines.push(`  URL: ${seed.url}`);
+  return lines.join("\n");
+}
+
+function instructionsFor(kind: ResponseKind, videoList: string): string {
+  switch (kind) {
+    case "text":
+      return `Reply with a short text DM only — NO attachment. Emojis inside the text are fine.
+Respond with valid JSON only:
+{ "text": "<your DM>", "attachment": null }`;
+    case "emoji":
+      return `Reply with ONLY emoji — no words at all. 1-6 emoji that capture your reaction.
+Respond with valid JSON only:
+{ "text": "<emoji-only string>", "attachment": null }`;
+    case "giphy":
+      return `Reply with a SHORT GIF reaction. Provide a search query (2-5 words) that captures the vibe.
+Optional 1-sentence text caption (can be empty).
+Respond with valid JSON only:
+{ "text": "<optional short caption or empty>", "attachment": { "type": "gif", "searchQuery": "<gif search query>" } }`;
+    case "video":
+      return `Pick ONE video from the list and share it with a 1-2 sentence DM caption.
+Available videos:
+${videoList}
+
+Respond with valid JSON only:
+{ "text": "<your caption>", "attachment": { "type": "video", "url": "<exact url from list>" } }`;
+  }
+}
+
 function buildPrompt(args: {
   thread: Thread;
   availableVideos: Array<{ url: string; title?: string }>;
-  gifEnabled: boolean;
+  kind: ResponseKind;
+  seed?: SeedVideoContext;
 }): string {
   const history = buildConversationHistory(args.thread);
   const videoList = args.availableVideos
     .map((v, i) => `  ${i + 1}. "${v.title ?? "Untitled"}" — ${v.url}`)
     .join("\n");
-
-  const attachmentInstructions = args.gifEnabled
-    ? `Choose ONE of:
-- Pick a video from the list below (use its exact URL)
-- React with a GIF instead (provide a short search query like "mind blown" or "same energy")`
-    : `Pick ONE video from the list below (use its exact URL).`;
+  const seedContext = buildSeedContext(args.seed);
 
   return `\
-Here is the conversation so far:
+${seedContext ? seedContext + "\n\n" : ""}Conversation so far:
 ---
 ${history}
 ---
 
-Available videos to share:
-${videoList}
-
-${attachmentInstructions}
-
-Respond with ONLY valid JSON in this exact shape (no markdown, no explanation):
-{
-  "text": "<your DM message>",
-  "attachment": { "type": "video", "url": "<exact url from list>" }
-}
-OR (if reacting with a GIF):
-{
-  "text": "<your DM message>",
-  "attachment": { "type": "gif", "searchQuery": "<short gif search query>" }
-}
-OR (if no attachment makes sense):
-{
-  "text": "<your DM message>",
-  "attachment": null
-}`;
+${instructionsFor(args.kind, videoList)}`;
 }
 
 export async function generateAgentTurn(args: {
@@ -173,12 +224,19 @@ export async function generateAgentTurn(args: {
   thread: Thread;
   availableVideos: Array<{ url: string; title?: string }>;
   gifEnabled?: boolean;
+  weights?: ResponseWeights;
+  seed?: SeedVideoContext;
   model?: string;
 }): Promise<AgentTurnResult> {
+  const weights = args.weights ?? DEFAULT_WEIGHTS;
+  const gifEnabled = args.gifEnabled ?? false;
+  const kind = pickResponseKind(weights, gifEnabled);
+
   const userPrompt = buildPrompt({
     thread: args.thread,
     availableVideos: args.availableVideos,
-    gifEnabled: args.gifEnabled ?? false,
+    kind,
+    seed: args.seed,
   });
 
   const response = await args.client.messages.create({
@@ -195,11 +253,16 @@ export async function generateAgentTurn(args: {
   try {
     parsed = JSON.parse(jsonText) as typeof parsed;
   } catch {
-    return { text: raw.slice(0, 300), attachment: null };
+    return { text: raw.slice(0, 300), attachment: null, kind };
   }
+
+  let attachment = parsed.attachment ?? null;
+  // Enforce kind: for text/emoji we drop any attachment the model may have hallucinated.
+  if (kind === "text" || kind === "emoji") attachment = null;
 
   return {
     text: parsed.text ?? "",
-    attachment: parsed.attachment ?? null,
+    attachment,
+    kind,
   };
 }
